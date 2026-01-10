@@ -1,33 +1,31 @@
-import { Body, Controller, Post, Request, UseGuards,Get } from '@nestjs/common';
+// auth.controller.ts
+import { Controller, Post, Body } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { LoginDto } from './dto/userDto';
-import { AuthGuard } from './auth.guard';
-import { PermissionsGuard } from './roles/role.guard';
-import { Permission } from './roles/role.decorator';
-import { Permissions } from './roles/permission';
+import { AdminLoginDto } from './auth.dto/admin-login.dto';
+import { QrVerifyDto } from './auth.dto/qr-verify.dto';
+import { SetPasswordDto } from './auth.dto/set-password.dto';
 
-@UseGuards(AuthGuard,PermissionsGuard)
-@Controller('user')
+@Controller('auth')
 export class AuthController {
-  constructor(private readonly authService:AuthService){}
-  @Post('admin/signin')
-  async adminSignIn(@Body() loginDto:LoginDto){
-   try {
-     return await this.authService.signIn(loginDto);
-   } catch (error) {
-    return {msg:error.message}
-   }
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('admin/login')
+  adminLogin(@Body() dto: AdminLoginDto) {
+    return this.authService.adminLogin(dto.specialId, dto.password);
   }
 
-  @Get('profile')
-  getProfile(@Request() req){
-    return req.user;
+  @Post('qr/verify')
+  verifyQr(@Body() dto: QrVerifyDto) {
+    return this.authService.verifyQrToken(dto.token);
   }
 
-  @Post("add-student")
-  @Permission(Permissions.ADD_STUDENTS)
-  createStudent(){
-    return {msg:"Student added!"}
+  @Post('set-password')
+  setPassword(@Body() dto: SetPasswordDto) {
+    return this.authService.setPassword(dto.token, dto.password);
   }
 
+  @Post('login')
+  login(@Body() dto: AdminLoginDto) {
+    return this.authService.login(dto.specialId, dto.password);
+  }
 }
