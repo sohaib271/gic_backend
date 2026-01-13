@@ -7,7 +7,7 @@ import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from 'src/user/schema/user.schema';
 import { UserRoleEnum } from 'src/user/enum/UserRole.enum';
 
-async function seed() {
+export async function seed() {
   const app = await NestFactory.createApplicationContext(AppModule);
   const userModel = app.get<Model<UserDocument>>(getModelToken(User.name));
 
@@ -51,4 +51,4 @@ async function seed() {
   process.exit(0);
 }
 
-seed();
+
