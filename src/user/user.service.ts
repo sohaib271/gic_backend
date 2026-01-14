@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import bcrypt from "bcrypt"
 import { Model } from 'mongoose';
 import { User, UserDocument } from './schema/user.schema';
 import { CreateStudentDto } from './dto/create-user.dto/create-student.dto';
@@ -15,6 +16,11 @@ import { v4 as uuidv4 } from 'uuid';
 @Injectable()
 export class UserService {
   constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
+
+
+  hashPassword(password:string){
+    return bcrypt.hash(password,10);
+  }
 
   /* ======================
      CREATE STUDENT
@@ -51,6 +57,7 @@ export class UserService {
     const professor = new this.userModel({
       ...dto,
       role: 'proff',
+      password:await this.hashPassword(dto.password),
       verifyToken,
       isQrScanned: false,
     });

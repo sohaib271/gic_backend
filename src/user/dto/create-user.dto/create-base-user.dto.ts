@@ -14,6 +14,10 @@ export class CreateBaseUserDto {
 
   @IsNotEmpty()
   @IsString()
+  password:string
+
+  @IsNotEmpty()
+  @IsString()
   name: string;
 
   @IsNotEmpty()

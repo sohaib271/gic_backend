@@ -13,12 +13,12 @@ import { UserService } from './user.service';
 import { CreateStudentDto } from './dto/create-user.dto/create-student.dto';
 import { CreateProfessorDto } from './dto/create-user.dto/create-professor.dto';
 import { CreateStaffDto } from './dto/create-user.dto/create-staff.dto';
-import { JwtAuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
+import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
 import { seed } from 'src/others-stuff/seeder/admin.seeder';
 
 @Controller('users')
-@UseGuards(JwtAuthGuard) // All routes require authentication
+@UseGuards(AuthGuard,AdminGuard) // All routes require authentication
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
