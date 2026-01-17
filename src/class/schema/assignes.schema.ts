@@ -2,7 +2,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 
-@Schema({ _id: false })
+@Schema({ _id: false,timestamps:true })
 export class AssignedTeacher {
   @Prop({ type: Types.ObjectId, required: true })
   teacherId: Types.ObjectId;
