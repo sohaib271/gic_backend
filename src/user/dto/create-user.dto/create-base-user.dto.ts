@@ -4,6 +4,7 @@ import {
   IsString,
   IsBoolean,
   IsOptional,
+  IsEmail,
 } from 'class-validator';
 import { UserRoleEnum } from '../../enum/UserRole.enum';
 
@@ -11,6 +12,15 @@ export class CreateBaseUserDto {
   @IsNotEmpty()
   @IsString()
   specialId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @IsEmail()
+  email:string;
+
+  @IsOptional()
+  @IsString()
+  image?:string
 
   @IsNotEmpty()
   @IsString()

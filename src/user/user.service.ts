@@ -33,6 +33,7 @@ export class UserService {
     const student = new this.userModel({
       ...dto,
       role: 'student',
+      password:await this.hashPassword(dto.password),
       verifyToken,
       isQrScanned: false,
     });
@@ -82,6 +83,7 @@ export class UserService {
     const staff = new this.userModel({
       ...dto,
       role: 'staff',
+      password:await this.hashPassword(dto.password),
       verifyToken,
       isQrScanned: false,
     });

@@ -14,12 +14,12 @@ import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
 
 @Controller('departments')
-// @UseGuards(JwtAuthGuard)
+@UseGuards(AuthGuard)
 export class DepartmentController {
   constructor(private readonly departmentService: DepartmentService) {}
 
-  @Post()
-  // @UseGuards(AdminGuard) // Only admin
+  @Post("create")
+  @UseGuards(AdminGuard) // Only admin
   createDepartment(@Body() dto: CreateDepartmentDto) {
     return this.departmentService.createDepartment(dto);
   }
