@@ -1,10 +1,11 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Class, ClassDocument } from './schema/class.schema';
 import { Model } from 'mongoose';
 import { CreateClassDto } from './dto/class.dto';
 import { AssignedTeacherDto } from './dto/assignes.dto';
 import { User, UserDocument } from 'src/user/schema/user.schema';
+import { UpdateClassDto } from './dto/updateClass.dto';
 
 @Injectable()
 export class ClassService {
@@ -39,7 +40,7 @@ export class ClassService {
     await this.classModel.findByIdAndUpdate({_id:classId},{$push:{assignes:{teacherId:dto.teacherId,name:dto.name,subject:dto.subject}}},{new:true});
 
     return {
-      message:"Teacher added successfully",
+      message:`Teacher assigned successfully`,
     }
   }
 
@@ -55,6 +56,52 @@ export class ClassService {
     return {
       message:"Student added successfully"
     }
+  }
+
+  async removeStudentFromClass(classId:string,studentId:string){
+    const allStudents=await this.checkStudents(classId,studentId);
+    const isExists=allStudents?.find(student=>student.toString()===studentId);
+    if(!isExists){
+      throw new ConflictException("Student doesn't exist");
+    }
+    await this.classModel.findByIdAndUpdate({_id:classId},{$pull:{classStudents:isExists}});
+
+    return {
+      message:"Student has been removed from class",
+    }
+  }
+
+
+  async removeTeacherFromClass(classId:string,teacherId:string){
+    const classTeachers=await this.checkTeachers(classId,teacherId);
+    const isExistInClass=classTeachers?.find(teacher => teacher.teacherId.toString()===teacherId);
+    
+    if(!isExistInClass){
+      throw new ConflictException("Teacher doesn't exist in class");
+    }
+
+    await this.classModel.findByIdAndUpdate({_id:classId},{$pull:{assignes:{teacherId}}});
+
+    return {
+      message:"Teacher removed",
+    }
+  }
+
+  async updateClassCredentials(classId:string,dto:UpdateClassDto){
+      const updateData:any={};
+      if(dto?.inter!==undefined) updateData.inter=dto.inter;
+      if(dto?.semester!==undefined) updateData.semester=dto.semester;
+      if(dto?.session!==undefined) updateData.session=dto.session;
+
+      if(Object.keys(updateData).length===0){
+        throw new BadRequestException("Empty fields provided");
+      }
+
+      await this.classModel.findByIdAndUpdate({_id:classId},{$set:updateData},{new:true});
+
+      return {
+        message:"Updated"
+      }
   }
 
   async checkTeachers(classId:string,teacherId:string){

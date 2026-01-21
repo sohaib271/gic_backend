@@ -45,7 +45,7 @@ export class User {
   role: string;
 
   @Prop()
-  password?: string;
+  password: string;
 
   @Prop()
   verifyToken?: string;
