@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Class, ClassDocument } from './schema/class.schema';
 import { Model } from 'mongoose';
@@ -27,7 +27,54 @@ export class ClassService {
     }    
   }
 
-  async addOneTeacher(dto:AssignedTeacherDto,classId:string){
+async getClassInfo(classId:string){
+  const isExist=await this.classModel.findById({_id:classId}).populate("departmentId");
+
+  if(!isExist){
+    throw new NotFoundException("Class doesn't exist");
+  }
+
+  return {
+    isExist
+  }
+}
+
+async getClassStudentList(classId:string){
+  const isExist=await this.classModel.findById({_id:classId},{classStudents:1}).populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"});
+
+  if(!isExist){
+    throw new NotFoundException("Class doesn't exist");
+  }
+
+  const classStudents=isExist?.classStudents;
+  if(classStudents.length===0){
+    throw new BadRequestException("Class has no students.")
+  }
+
+  return {
+    classStudents
+  }
+}
+
+async getAssignedTeacherList(classId:string){
+  const isExist=await this.classModel.findById({_id:classId},{assignes:1});
+
+  if(!isExist){
+    throw new NotFoundException('Class doesnt exist');
+  }
+
+  const assignedTeachers=isExist?.assignes;
+
+  if(assignedTeachers.length===0){
+    throw new BadRequestException('Class has no teachers assigned.');
+  }
+
+  return {
+    assignedTeachers
+  }
+}
+
+  async addTeacherInClass(dto:AssignedTeacherDto,classId:string){
     const classTeachers=await this.checkTeachers(classId,dto.teacherId);
     const isExistInClass=classTeachers?.find(teacher => teacher.teacherId.toString()===dto.teacherId || teacher.subject===dto.subject);
     
@@ -44,7 +91,7 @@ export class ClassService {
     }
   }
 
-  async addOneStudent(classId:string,studentId:string){
+  async addStudentInClass(classId:string,studentId:string){
     const allStudents=await this.checkStudents(classId,studentId);
     const isExists=allStudents?.find(student=>student.toString()===studentId);
     if(isExists){

@@ -18,7 +18,7 @@ import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
 import { seed } from 'src/others-stuff/seeder/admin.seeder';
 
 @Controller('users')
-@UseGuards(AuthGuard,AdminGuard) // All routes require authentication
+@UseGuards(AuthGuard) // All routes require authentication
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
@@ -62,7 +62,6 @@ export class UserController {
   }
 
   @Put(':id')
-  // @UseGuards(AdminGuard) // Only admin
   updateUser(@Param('id') id: string, @Body() updateData: any) {
     return this.userService.updateUser(id, updateData);
   }
