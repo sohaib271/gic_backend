@@ -9,6 +9,7 @@ import { AuthController } from './auth.controller';
 
 import { User, UserSchema } from 'src/user/schema/user.schema';
 import { ConfigService } from '@nestjs/config';
+import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 
 @Module({
   imports: [

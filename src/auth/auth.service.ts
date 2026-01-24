@@ -19,8 +19,8 @@ export class AuthService {
   /* ======================
      ADMIN LOGIN
   ======================= */
-  async adminLogin(specialId: string, password: string) {
-    const admin = await this.userModel.findOne({ specialId, role: 'admin' });
+  async adminLogin(email: string, password: string) {
+    const admin = await this.userModel.findOne({ email, role: 'admin' });
 
     if (!admin || !admin.password) {
       throw new UnauthorizedException('Invalid credentials');
@@ -28,53 +28,70 @@ export class AuthService {
 
     const match = await bcrypt.compare(password, admin.password);
     if (!match) throw new UnauthorizedException('Invalid credentials');
+    const res=this.signToken(admin);
+    const token=res.access_token;
+    admin.verifyToken=token;
+    admin.save();
 
-    return this.signToken(admin);
+    return res;
   }
 
   /* ======================
      QR VERIFY
   ======================= */
-  async verifyQrToken(token: string) {
-    const user = await this.userModel.findOne({ verifyToken: token });
+  // async verifyQrToken(token: string) {
+  //   const user = await this.userModel.findOne({ verifyToken: token });
 
-    if (!user) throw new BadRequestException('Invalid QR token');
-    if (user.isQrScanned) throw new BadRequestException('QR already used');
+  //   if (!user) throw new BadRequestException('Invalid QR token');
+  //   if (user.isQrScanned) throw new BadRequestException('QR already used');
 
-    return { message: 'QR verified', specialId: user.specialId };
-  }
+  //   return { message: 'QR verified', specialId: user.specialId };
+  // }
 
   /* ======================
      SET PASSWORD (FIRST TIME)
   ======================= */
-  async setPassword(token: string, password: string) {
-    const user = await this.userModel.findOne({ verifyToken: token });
+  // async setPassword(token: string, password: string) {
+  //   const user = await this.userModel.findOne({ verifyToken: token });
 
-    if (!user) throw new BadRequestException('Invalid token');
-    if (user.isQrScanned) throw new BadRequestException('Password already set');
+  //   if (!user) throw new BadRequestException('Invalid token');
+  //   if (user.isQrScanned) throw new BadRequestException('Password already set');
 
-    user.password = await bcrypt.hash(password, 10);
-    user.isQrScanned = true;
-    user.verifyToken = undefined;
+  //   user.password = await bcrypt.hash(password, 10);
+  //   user.isQrScanned = true;
+  //   user.verifyToken = undefined;
 
-    await user.save();
+  //   await user.save();
 
-    return this.signToken(user);
-  }
+  //   return this.signToken(user);
+  // }
 
   /* ======================
      NORMAL LOGIN
   ======================= */
-  async login(specialId: string, password: string) {
-    const user = await this.userModel.findOne({ specialId });
+  async login(email: string, password: string) {
+    const user = await this.userModel.findOne({ email });
 
     if (!user || !user.password)
       throw new UnauthorizedException('Invalid credentials');
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) throw new UnauthorizedException('Invalid credentials');
+    const res=this.signToken(user);
+    user.verifyToken=res.access_token;
+    user.save();
+    return res;
+  }
 
-    return this.signToken(user);
+  async logout(userId:string){
+    const logoutUser=await this.userModel.findByIdAndUpdate({_id:userId},{$set:{verifyToken:null}})
+    if(!logoutUser){
+      throw new BadRequestException("Invalid User Id");
+    }
+
+    return {
+      message:"Logged Out"
+    }
   }
 
   /* ======================

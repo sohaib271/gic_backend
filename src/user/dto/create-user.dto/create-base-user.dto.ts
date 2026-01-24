@@ -18,6 +18,10 @@ export class CreateBaseUserDto {
   @IsEmail()
   email:string;
 
+  @IsString()
+  @IsOptional()
+  gender?:string
+
   @IsOptional()
   @IsString()
   image?:string

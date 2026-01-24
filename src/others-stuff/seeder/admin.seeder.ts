@@ -29,6 +29,7 @@ export async function seed() {
 
     await userModel.create({
       specialId: '00-ADM-001',
+      email:"admin123@gmail.com",
       name: 'System Administrator',
       fatherName: 'Administrator',
       cnic: '0000000000000',

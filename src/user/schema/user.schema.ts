@@ -20,6 +20,9 @@ export class User {
   @Prop({default:true})
   isActive?:boolean;
 
+  @Prop({default:'M',enum:['M','F']})
+  gender?:string
+
   @Prop({default:''})
   image?:string
 

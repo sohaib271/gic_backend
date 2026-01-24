@@ -1,13 +1,17 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable,UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-// import { AuthGuard } from '@nestjs/passport';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { User, UserDocument } from 'src/user/schema/user.schema';
+
+
 
 
 @Injectable()
 export class AuthGuard implements CanActivate {
 
-  constructor(private readonly jwtService:JwtService, private readonly configservice:ConfigService){}
+  constructor(@InjectModel(User.name) private readonly userModel:Model<UserDocument>,private readonly jwtService:JwtService, private readonly configservice:ConfigService){}
   async canActivate(
     context: ExecutionContext,
   ):Promise<boolean>{
@@ -15,17 +19,27 @@ export class AuthGuard implements CanActivate {
     try {
       const token=this.extractTokenFromHeader(request);
       if(!token){
-        throw new UnauthorizedException(); 
+        throw new UnauthorizedException("No token from client"); 
       }
       const user=await this.verifyToken(token);
-  
+      if(!user){
+        throw new UnauthorizedException("Session expired. Login again");
+      }
+      const dbToken=await this.userModel.findById({_id:user.sub},{verifyToken:1,_id:0});
+
+      if(!dbToken?.verifyToken || (token!==dbToken?.verifyToken)){
+          throw new UnauthorizedException("Couldn't verify user. Login again")
+      }
       request['user']=user
    
     return true;
       
     } catch (error) {
-      throw new UnauthorizedException();
-    }
+  if (error instanceof UnauthorizedException) {
+    throw error;
+  }
+  throw new UnauthorizedException('Invalid or expired token');
+}
      
   }
 
