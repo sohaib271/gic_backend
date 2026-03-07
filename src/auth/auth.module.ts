@@ -8,12 +8,13 @@ import { AuthController } from './auth.controller';
 // import { JwtStrategy } from './strategy/jwt.strategy';
 
 import { User, UserSchema } from 'src/user/schema/user.schema';
-import { ConfigService } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
+import { EmailService } from 'src/others-stuff/utils/sendEmail.service';
 
 @Module({
   imports: [
-    // User model
+    ConfigModule.forRoot(),
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
 
     JwtModule.registerAsync({
@@ -28,9 +29,9 @@ import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
   ],
 
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService,EmailService],
 
-  exports: [AuthService,JwtModule],
+  exports: [AuthService,JwtModule,EmailService],
 })
 export class AuthModule {}
 

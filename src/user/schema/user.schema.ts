@@ -14,6 +14,13 @@ export class User {
   @Prop({ required: true, unique: true })
   specialId: string;
 
+  @Prop({type:String,default:null})
+  otp:string | null;
+
+  @Prop({type:Number,default:null})
+   otpExpiry:number | null;
+
+
   @Prop({required:true,unique:true})
   email:string;
 

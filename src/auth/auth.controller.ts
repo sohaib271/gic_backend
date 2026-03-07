@@ -13,17 +13,6 @@ export class AuthController {
   adminLogin(@Body() dto: AdminLoginDto) {
     return this.authService.adminLogin(dto.email, dto.password);
   }
-
-  // @Post('qr/verify')
-  // verifyQr(@Body() dto: QrVerifyDto) {
-  //   return this.authService.verifyQrToken(dto.token);
-  // }
-
-  // @Post('set-password')
-  // setPassword(@Body() dto: SetPasswordDto) {
-  //   return this.authService.setPassword(dto.token, dto.password);
-  // }
-
   @Post('login')
   login(@Body() dto: AdminLoginDto) {
     return this.authService.login(dto.email, dto.password);
@@ -32,5 +21,20 @@ export class AuthController {
   @Get('logout/:id')
   logout(@Param('id') id:string){
     return this.authService.logout(id);
+  }
+
+  @Post('forgot-password')
+  forgotPassword(@Body() body:{email:string}){
+    return this.authService.forgetPassword(body.email);
+  }
+
+  @Post('verify-otp')
+  verifyOtp(@Body() body:{email:string,otp:string}){
+    return this.authService.verifyOTP(body.email,body.otp);
+  }
+
+  @Post('reset-password')
+  resetPassword(@Body() body : {email:string,newPassword:string}){
+    return this.authService.resetPassword(body.email,body.newPassword);
   }
 }
