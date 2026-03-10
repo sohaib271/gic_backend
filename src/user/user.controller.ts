@@ -15,7 +15,6 @@ import { CreateProfessorDto } from './dto/create-user.dto/create-professor.dto';
 import { CreateStaffDto } from './dto/create-user.dto/create-staff.dto';
 import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
-import { seed } from 'src/others-stuff/seeder/admin.seeder';
 
 @Controller('users')
 @UseGuards(AuthGuard) // All routes require authentication
@@ -26,12 +25,6 @@ export class UserController {
   @UseGuards(AdminGuard) // Only admin
   createStudent(@Body() dto: CreateStudentDto) {
     return this.userService.createStudent(dto);
-  }
-
-  @Get('admin')
-  @UseGuards(AdminGuard)
-  async createAdmin(){
-    return await seed();
   }
 
   @Post('professor')

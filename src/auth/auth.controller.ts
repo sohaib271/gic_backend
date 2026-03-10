@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { AdminLoginDto } from './auth.dto/admin-login.dto';
 import { QrVerifyDto } from './auth.dto/qr-verify.dto';
 import { SetPasswordDto } from './auth.dto/set-password.dto';
+import { seed } from 'src/others-stuff/seeder/admin.seeder';
 
 @Controller('auth')
 export class AuthController {
@@ -13,6 +14,12 @@ export class AuthController {
   adminLogin(@Body() dto: AdminLoginDto) {
     return this.authService.adminLogin(dto.email, dto.password);
   }
+
+   @Get('admin')
+    async createAdmin(){
+      return await seed();
+    }
+
   @Post('login')
   login(@Body() dto: AdminLoginDto) {
     return this.authService.login(dto.email, dto.password);
