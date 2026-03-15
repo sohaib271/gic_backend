@@ -11,8 +11,9 @@ export class EmailService {
 
     const transporter = nodemailer.createTransport(<SMTPTransport.Options>{
       host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
+   secure: false,
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
     family: 4,
       auth: {
         user: this.configService.get<string>('EMAIL_USER'),
