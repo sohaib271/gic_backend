@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateStudentDto } from './dto/create-user.dto/create-student.dto';
@@ -25,6 +26,11 @@ export class UserController {
   @UseGuards(AdminGuard) // Only admin
   createStudent(@Body() dto: CreateStudentDto) {
     return this.userService.createStudent(dto);
+  }
+
+  @Get('me')
+  getMe(@Req() req:any){
+    return this.userService.getLoggedInUser(req?.user.sub);
   }
 
   @Post('professor')

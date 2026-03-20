@@ -6,8 +6,14 @@ export class AssignedTeacher {
   @Prop({ type: Types.ObjectId, required: true })
   teacherId: Types.ObjectId;
 
-  @Prop({ required: true })
-  name: string;
+  @Prop({default:null})
+  day?:string;
+
+  @Prop({default:null})
+  startTime?:string;
+
+  @Prop({default:null})
+  endTime?:string
 
   @Prop({ required: true })
   subject: string;

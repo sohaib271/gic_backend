@@ -9,10 +9,11 @@ import {
 import { CreateBaseUserDto } from './create-base-user.dto';
 
 export class CreateStudentDto extends CreateBaseUserDto {
+  @IsNotEmpty({message:"Department is required"})
   @IsMongoId()
   department: string;
 
-  @IsNotEmpty()
+  @IsNotEmpty({message:"Session is required"})
   @IsString()
   session: string;
 
@@ -20,7 +21,8 @@ export class CreateStudentDto extends CreateBaseUserDto {
   @IsOptional()
   subjects?: string[];
 
-  @IsNumber()
+  @IsString()
+  @IsNotEmpty({message:"Matric marks are required"})
   matricMarks: number;
 
   @IsOptional()

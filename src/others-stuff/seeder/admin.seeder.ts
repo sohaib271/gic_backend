@@ -31,7 +31,7 @@ export async function seed() {
       specialId: '00-ADM-001',
       email:"admin123@gmail.com",
       name: 'System Administrator',
-      fatherName: 'Administrator',
+      lastName: 'Administrator',
       cnic: '0000000000000',
       phone: '0000000000',
       address: 'Admin Office',

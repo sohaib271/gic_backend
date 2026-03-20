@@ -10,6 +10,9 @@ export class Department {
 
   @Prop()
   code?: string;
+
+  @Prop({enum:["intermediate","bs_adp"],default:null})
+  category?:string;
 }
 
 export const DepartmentSchema = SchemaFactory.createForClass(Department);

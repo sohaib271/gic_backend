@@ -7,10 +7,6 @@ export type UserDocument = User & Document;
 
 @Schema({ timestamps: true })
 export class User {
-  /* =======================
-     COMMON FIELDS (ALL)
-  ======================== */
-
   @Prop({ required: true, unique: true })
   specialId: string;
 
@@ -20,9 +16,11 @@ export class User {
   @Prop({type:Number,default:null})
    otpExpiry:number | null;
 
-
   @Prop({required:true,unique:true})
   email:string;
+
+  @Prop({default:null})
+  city?:string;
 
   @Prop({default:true})
   isActive?:boolean;
@@ -37,12 +35,12 @@ export class User {
   name: string;
 
   @Prop({ required: true })
-  fatherName: string;
+  lastName: string;
 
   @Prop({ required: true, unique: true })
   cnic: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true,unique:true })
   phone: string;
 
   @Prop()
@@ -73,11 +71,17 @@ export class User {
   @Prop()
   session?: string;
 
+  @Prop({enum:["intermediate","bs","adp"],default:null})
+  category?:string;
+
   @Prop([String])
   subjects?: string[];
 
   @Prop()
   matricMarks?: number;
+
+  @Prop({default:null,enum:["I","II","III","IV","V","VI","VII","VIII"]})
+  class?:string
 
   @Prop()
   whatsappNumber?: string;
@@ -89,6 +93,9 @@ export class User {
 
   @Prop({ default: false })
   isHod?: boolean;
+
+  @Prop({default:null})
+  doj:string
 
   @Prop({ default: false })
   isPrincipal?: boolean;

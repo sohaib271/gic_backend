@@ -3,87 +3,145 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  HttpException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import bcrypt from "bcrypt"
+import bcrypt from 'bcrypt';
 import { Model } from 'mongoose';
 import { User, UserDocument } from './schema/user.schema';
 import { CreateStudentDto } from './dto/create-user.dto/create-student.dto';
 import { CreateProfessorDto } from './dto/create-user.dto/create-professor.dto';
 import { CreateStaffDto } from './dto/create-user.dto/create-staff.dto';
 import { v4 as uuidv4 } from 'uuid';
+import { Department } from 'src/department/schema/department.schema';
 
 @Injectable()
 export class UserService {
-  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
+  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>, 
+@InjectModel('Department') private departmentModel: Model<Department>,) {}
 
-
-  hashPassword(password:string){
-    return bcrypt.hash(password,10);
+  hashPassword(password: string) {
+    return bcrypt.hash(password, 10);
   }
 
   /* ======================
      CREATE STUDENT
   ======================= */
   async createStudent(dto: CreateStudentDto) {
-    await this.checkDuplicates(dto.specialId, dto.cnic);
+    try {
+      await this.checkDuplicates(dto.cnic);
 
-    const verifyToken = uuidv4();
+      const verifyToken = uuidv4();
 
-    const student = new this.userModel({
-      ...dto,
-      role: 'student',
-      password:await this.hashPassword(dto.password),
-      verifyToken,
-      isQrScanned: false,
-    });
+      const student = new this.userModel({
+        ...dto,
+        role: 'student',
+        password: await this.hashPassword(dto.password),
+        verifyToken,
+        isQrScanned: false,
+      });
 
-    await student.save();
+      const department=await this.departmentModel.findById(student.department);
+      if(!department){
+        throw new BadRequestException("Department not found");
+      }
+      student.specialId = `STU-${department.code}-${student.cnic.slice(-4)}`;
+      await student.save();
 
-    return {
-      message: 'Student created successfully',
-      user: this.sanitizeUser(student),
-      qrToken: verifyToken,
-    };
+      return {
+        message: 'Student created successfully',
+        user: this.sanitizeUser(student),
+        qrToken: verifyToken,
+      };
+    } catch (error) {
+      // Mongoose validation error (required fields, enum, etc.)
+      if (error.name === 'ValidationError') {
+        const messages = Object.values(error.errors).map((e: any) => e.message);
+        throw new BadRequestException({
+          message: 'Validation failed',
+          errors: messages,
+        });
+      }
+
+      // MongoDB duplicate key (unique constraint)
+      if (error.code === 11000) {
+        const field = Object.keys(error.keyValue)[0];
+        const value = error.keyValue[field];
+        throw new ConflictException(`${field} '${value}' already exists`);
+      }
+
+      // Re-throw known NestJS HTTP exceptions (from checkDuplicates, etc.)
+      if (error instanceof HttpException) throw error;
+
+      // Unexpected error
+      throw new InternalServerErrorException('Something went wrong');
+    }
   }
 
   /* ======================
      CREATE PROFESSOR
   ======================= */
   async createProfessor(dto: CreateProfessorDto) {
-    await this.checkDuplicates(dto.specialId, dto.cnic);
+    try {
+      await this.checkDuplicates(dto.cnic);
 
-    const verifyToken = uuidv4();
+      const verifyToken = uuidv4();
+      const users = await this.getAllUsers();
 
-    const professor = new this.userModel({
-      ...dto,
-      role: 'proff',
-      password:await this.hashPassword(dto.password),
-      verifyToken,
-      isQrScanned: false,
-    });
+      const professor = new this.userModel({
+        ...dto,
+        role: 'proff',
+        password: await this.hashPassword(dto.password),
+        verifyToken,
+        isQrScanned: false,
+        specialId: `PROF-${dto.cnic.slice(-4)}-${users.length + 1}`,
+      });
 
-    await professor.save();
+      await professor.save();
 
-    return {
-      message: 'Professor created successfully',
-      user: this.sanitizeUser(professor),
-      qrToken: verifyToken,
-    };
+      return {
+        message: 'Professor created successfully',
+        user: this.sanitizeUser(professor),
+        qrToken: verifyToken,
+      };
+    } catch (error) {
+      // Mongoose validation error (required fields, enum, etc.)
+      if (error.name === 'ValidationError') {
+        const messages = Object.values(error.errors).map((e: any) => e.message);
+        throw new BadRequestException({
+          message: 'Validation failed',
+          errors: messages,
+        });
+      }
+
+      // MongoDB duplicate key (unique constraint)
+      if (error.code === 11000) {
+        const field = Object.keys(error.keyValue)[0];
+        const value = error.keyValue[field];
+        throw new ConflictException(`${field} '${value}' already exists`);
+      }
+
+      // Re-throw known NestJS HTTP exceptions (from checkDuplicates, etc.)
+      if (error instanceof HttpException) throw error;
+
+      // Unexpected error
+      throw new InternalServerErrorException('Something went wrong');
+    }
   }
 
   /* ======================
      CREATE STAFF
   ======================= */
   async createStaff(dto: CreateStaffDto) {
-    await this.checkDuplicates(dto.specialId, dto.cnic);
+    await this.checkDuplicates(dto.cnic);
 
     const verifyToken = uuidv4();
 
     const staff = new this.userModel({
       ...dto,
       role: 'staff',
-      password:await this.hashPassword(dto.password),
+      password: await this.hashPassword(dto.password),
       verifyToken,
       isQrScanned: false,
     });
@@ -195,15 +253,21 @@ export class UserService {
     };
   }
 
+  async getLoggedInUser(id: string) {
+    const me = await this.userModel.findById(id);
+
+    if (!me) {
+      throw new NotFoundException('User not found');
+    }
+    return {
+      user: this.sanitizeUser(me),
+    };
+  }
+
   /* ======================
      HELPER: CHECK DUPLICATES
   ======================= */
-  private async checkDuplicates(specialId: string, cnic: string) {
-    const existingSpecialId = await this.userModel.findOne({ specialId });
-    if (existingSpecialId) {
-      throw new ConflictException('Special ID already exists');
-    }
-
+  private async checkDuplicates(cnic: string) {
     const existingCnic = await this.userModel.findOne({ cnic });
     if (existingCnic) {
       throw new ConflictException('CNIC already exists');

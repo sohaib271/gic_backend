@@ -1,6 +1,7 @@
 import {
   IsMongoId,
   IsOptional,
+  IsNotEmpty,
   IsString,
   IsArray,
   IsBoolean,
@@ -8,16 +9,17 @@ import {
 import { CreateBaseUserDto } from './create-base-user.dto';
 
 export class CreateProfessorDto extends CreateBaseUserDto {
+  @IsNotEmpty({ message: 'Department is required' })
   @IsMongoId()
   department: string;
 
-  @IsOptional()
   @IsArray()
-  subjects?: string[];
+  @IsNotEmpty({ each: true, message: 'Subjects must not be empty' })
+  subjects: string[];
 
-  @IsOptional()
+ @IsNotEmpty({ message: 'Qualification is required' })
   @IsString()
-  qualification?: string;
+  qualification: string;
 
   @IsOptional()
   @IsBoolean()
