@@ -1,15 +1,24 @@
 
-import { IsMongoId, IsNotEmpty, IsString } from 'class-validator';
+import { IsMongoId, IsOptional, IsString,IsArray } from 'class-validator';
 
 export class AssignedTeacherDto {
-  @IsMongoId()
+  @IsMongoId({ message: 'Invalid teacher ID' })
   teacherId: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  name: string;
+  subject?: string;
 
+   @IsArray()
+    @IsString({ each: true })
+    @IsOptional()
+    days?: string[];
+
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  subject: string;
+  startTime?: string;
+
+  @IsOptional()
+  @IsString()
+  endTime?: string;
 }

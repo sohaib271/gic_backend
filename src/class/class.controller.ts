@@ -1,10 +1,11 @@
-import { Controller,Get,Post,Patch, UseGuards, Body, Param } from '@nestjs/common';
+import { Controller,Get,Post,Patch, UseGuards, Body, Param, Req } from '@nestjs/common';
 import { HodGuard } from 'src/others-stuff/guards/hod.guard';
 import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { ClassService } from './class.service';
 import { CreateClassDto } from './dto/class.dto';
 import { AssignedTeacherDto } from './dto/assignes.dto';
 import { UpdateClassDto } from './dto/updateClass.dto';
+import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
 
 @UseGuards(AuthGuard)
 @Controller('class')
@@ -14,8 +15,8 @@ export class ClassController {
 
   @UseGuards(HodGuard)
   @Post("create")
-  createClass(@Body() dto:CreateClassDto){
-    return this.classservice.createClass(dto);
+  createClass(@Req() req:any,@Body() dto:CreateClassDto){
+    return this.classservice.createClass(dto,req.user.sub);
   }
 
   @UseGuards(HodGuard)
@@ -28,6 +29,12 @@ export class ClassController {
   @Post("add-student-in-class/:classId/:studentId")
   addStudent(@Param('classId') classId:string, @Param('studentId') studentId:string){
     return this.classservice.addStudentInClass(classId,studentId);
+  }
+
+  @UseGuards(HodGuard,AdminGuard)
+  @Get('all')
+  getClasses(){
+    return this.classservice.getClasses();
   }
 
 @UseGuards(HodGuard)

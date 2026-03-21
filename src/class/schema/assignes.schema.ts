@@ -6,8 +6,8 @@ export class AssignedTeacher {
   @Prop({ type: Types.ObjectId, required: true })
   teacherId: Types.ObjectId;
 
-  @Prop({default:null})
-  day?:string;
+   @Prop([String])
+  days?: string[];
 
   @Prop({default:null})
   startTime?:string;
@@ -15,8 +15,8 @@ export class AssignedTeacher {
   @Prop({default:null})
   endTime?:string
 
-  @Prop({ required: true })
-  subject: string;
+  @Prop({ default:null })
+  subject?: string;
 }
 
 export const AssignedTeacherSchema =

@@ -11,21 +11,39 @@ import { UpdateClassDto } from './dto/updateClass.dto';
 export class ClassService {
   constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>){}
 
-  async createClass(dto:CreateClassDto){
-    const isExist=await this.classModel.findOne({className:dto.className});
+  async getClasses(){
+    const classes=await this.classModel.find().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"});
 
-    if(isExist){
-      throw new ConflictException("Class of similar name already exists.")
+    if(classes.length==0){
+      return "No Class created";
     }
 
-    const newClass=new this.classModel(dto);
-    await newClass.save();
-
-    return {
-      message:"Class created successflly",
-      newClass
-    }    
+    return classes;
   }
+  async createClass(dto: CreateClassDto, createdBy: string) {
+  try {
+    const isExist = await this.classModel.findOne({ className: dto.className });
+    if (isExist) throw new ConflictException('Class of similar name already exists.');
+
+    const newClass = new this.classModel({
+      ...dto,
+      createdBy,
+    });
+
+    await newClass.save();
+    return { message: 'Class created successfully', newClass };
+
+  } catch (error) {
+    if (error instanceof ConflictException) throw error;
+
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map((e: any) => e.message);
+      throw new BadRequestException({ message: 'Validation failed', errors: messages });
+    }
+
+    throw new InternalServerErrorException('Something went wrong');
+  }
+}
 
 async getClassInfo(classId:string){
   const isExist=await this.classModel.findById({_id:classId}).populate("departmentId");
@@ -84,7 +102,7 @@ async getAssignedTeacherList(classId:string){
 
    
 
-    await this.classModel.findByIdAndUpdate({_id:classId},{$push:{assignes:{teacherId:dto.teacherId,name:dto.name,subject:dto.subject}}},{new:true});
+    await this.classModel.findByIdAndUpdate({_id:classId},{$push:{assignes:{teacherId:dto.teacherId,subject:dto.subject}}},{new:true});
 
     return {
       message:`Teacher assigned successfully`,

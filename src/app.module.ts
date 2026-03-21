@@ -5,6 +5,8 @@ import { UserModule } from './user/user.module';
 import { DepartmentModule } from './department/department.module';
 import { AuthModule } from './auth/auth.module';
 import { ClassModule } from './class/class.module';
+import * as dns from "dns"
+dns.setServers(["1.1.1.1","8.8.8.8"]);
 
 @Module({
   imports: [

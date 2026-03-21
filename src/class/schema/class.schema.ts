@@ -19,9 +19,6 @@ export class Class {
   @Prop({ type: Types.ObjectId, ref: Department.name,required:true })
   departmentId:Types.ObjectId;
 
-  @Prop({ required: true })
-  departmentName:string;
-
   @Prop({type:[{ type: Types.ObjectId, ref: User.name}],default:[]})
   classStudents:Types.ObjectId[];
 
@@ -30,15 +27,15 @@ export class Class {
 
   @Prop([String])
   subjects?: string[];
+  
+  @Prop({required:true,enum:["intermediate","bs","adp"]})
+  category:string;
 
   @Prop({required:true})
   session: string;
 
-   @Prop()
-  semester?: string;
-
-  @Prop({enum:["I","II"]})
-  inter?: string;
+  @Prop({required:true,enum:["I","II","III","IV","V","VI","VII","VIII"]})
+  class: string;
 }
 
 export const ClassSchema = SchemaFactory.createForClass(Class);
