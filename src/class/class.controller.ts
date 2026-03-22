@@ -13,7 +13,8 @@ export class ClassController {
   constructor(private readonly classservice:ClassService){}
 
 
-  @UseGuards(HodGuard)
+  // @UseGuards(HodGuard)
+  @UseGuards(AdminGuard)
   @Post("create")
   createClass(@Req() req:any,@Body() dto:CreateClassDto){
     return this.classservice.createClass(dto,req.user.sub);

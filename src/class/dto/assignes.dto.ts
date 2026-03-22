@@ -1,5 +1,20 @@
+// assigned-teacher.dto.ts
+import { IsString, IsNotEmpty, IsArray, ValidateNested, IsOptional, IsMongoId } from 'class-validator';
+import { Type } from 'class-transformer';
 
-import { IsMongoId, IsOptional, IsString,IsArray } from 'class-validator';
+export class ScheduleDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Day is required' })
+  day: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Start time is required' })
+  startTime: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'End time is required' })
+  endTime: string;
+}
 
 export class AssignedTeacherDto {
   @IsMongoId({ message: 'Invalid teacher ID' })
@@ -9,16 +24,8 @@ export class AssignedTeacherDto {
   @IsString()
   subject?: string;
 
-   @IsArray()
-    @IsString({ each: true })
-    @IsOptional()
-    days?: string[];
-
-  @IsOptional()
-  @IsString()
-  startTime?: string;
-
-  @IsOptional()
-  @IsString()
-  endTime?: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ScheduleDto)
+  schedule: ScheduleDto[];
 }
