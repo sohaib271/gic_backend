@@ -1,4 +1,4 @@
-import { Controller,Get,Post,Patch, UseGuards, Body, Param, Req } from '@nestjs/common';
+import { Controller,Get,Post,Patch, UseGuards, Body, Param, Req, Query } from '@nestjs/common';
 import { HodGuard } from 'src/others-stuff/guards/hod.guard';
 import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { ClassService } from './class.service';
@@ -34,8 +34,8 @@ export class ClassController {
 
   @UseGuards(HodGuard,AdminGuard)
   @Get('all')
-  getClasses(){
-    return this.classservice.getClasses();
+  getClasses(@Query('category') category?: string){
+    return this.classservice.getClasses(category);
   }
 
 @UseGuards(HodGuard)

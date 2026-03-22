@@ -11,8 +11,9 @@ import { UpdateClassDto } from './dto/updateClass.dto';
 export class ClassService {
   constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>){}
 
-  async getClasses(){
-    const classes=await this.classModel.find().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"});
+  async getClasses(category?:string){
+    const filter = category ? { category } : {};
+    const classes=await this.classModel.find(filter).populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"});
 
     if(classes.length==0){
       return "No Class created";
