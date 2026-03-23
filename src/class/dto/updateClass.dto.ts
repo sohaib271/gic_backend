@@ -7,9 +7,6 @@ export class UpdateClassDto{
   
     @IsString()
     @IsOptional()
-    semester?:string;
+    class?:string;
   
-    @IsString()
-    @IsOptional()
-    inter?:string;
 }

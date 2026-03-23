@@ -32,7 +32,7 @@ export class ClassController {
     return this.classservice.addStudentInClass(classId,studentId);
   }
 
-  @UseGuards(HodGuard,AdminGuard)
+  @UseGuards(AdminGuard)
   @Get('all')
   getClasses(@Query('category') category?: string){
     return this.classservice.getClasses(category);

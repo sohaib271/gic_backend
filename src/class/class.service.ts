@@ -13,8 +13,9 @@ export class ClassService {
 
   async getClasses(category?:string){
     const filter = category ? { category } : {};
-    const classes=await this.classModel.find(filter).populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"});
-
+    const classes=await this.classModel.find(filter).populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"}).populate({
+    path: "departmentId",
+  });;
     if(classes.length==0){
       return "No Class created";
     }
@@ -155,8 +156,7 @@ async getAssignedTeacherList(classId:string){
 
   async updateClassCredentials(classId:string,dto:UpdateClassDto){
       const updateData:any={};
-      if(dto?.inter!==undefined) updateData.inter=dto.inter;
-      if(dto?.semester!==undefined) updateData.semester=dto.semester;
+      if(dto?.class!==undefined) updateData.class=dto.class;
       if(dto?.session!==undefined) updateData.session=dto.session;
 
       if(Object.keys(updateData).length===0){
