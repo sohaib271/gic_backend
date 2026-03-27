@@ -24,6 +24,14 @@ export class AssignedTeacherDto {
   @IsString()
   subject?: string;
 
+ @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ScheduleDto)
+  schedule?: ScheduleDto[];
+}
+
+export class UpdateScheduleDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ScheduleDto)

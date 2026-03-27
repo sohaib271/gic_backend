@@ -94,22 +94,109 @@ async getAssignedTeacherList(classId:string){
   }
 }
 
-  async addTeacherInClass(dto:AssignedTeacherDto,classId:string){
-    const classTeachers=await this.checkTeachers(classId,dto.teacherId);
-    const isExistInClass=classTeachers?.find(teacher => teacher.teacherId.toString()===dto.teacherId || teacher.subject===dto.subject);
-    
-    if(isExistInClass){
-      throw new ConflictException("Teacher already exists");
-    }
+  async addTeacherInClass(dto: AssignedTeacherDto, classId: string) {
+  const classTeachers = await this.checkTeachers(classId, dto.teacherId);
+  const isExistInClass = classTeachers?.find(
+    (teacher) =>
+      teacher.teacherId.toString() === dto.teacherId ||
+      teacher.subject === dto.subject
+  );
 
-   
-
-    await this.classModel.findByIdAndUpdate({_id:classId},{$push:{assignes:{teacherId:dto.teacherId,subject:dto.subject}}},{new:true});
-
-    return {
-      message:`Teacher assigned successfully`,
-    }
+  if (isExistInClass) {
+    throw new ConflictException("Teacher already exists");
   }
+
+  await this.classModel.findByIdAndUpdate(
+    { _id: classId },
+    {
+      $push: {
+        assignes: {
+          teacherId: dto.teacherId,
+          subject:   dto.subject,
+          schedule:  dto.schedule ?? [],  // ✅ include schedule
+        },
+      },
+    },
+    { new: true }
+  );
+
+  return { message: "Teacher assigned successfully" };
+}
+
+async updateTeacherSchedule(classId: string, teacherId: string, schedule: { day: string; startTime: string; endTime: string }[]) {
+  const classTeachers = await this.checkTeachers(classId, teacherId);
+  
+  const teacherIndex = classTeachers?.findIndex(
+    (t) => t.teacherId.toString() === teacherId
+  );
+
+  if (teacherIndex === -1 || teacherIndex === undefined) {
+    throw new NotFoundException("Teacher is not assigned to this class");
+  }
+
+  if (!schedule || schedule.length === 0) {
+    throw new BadRequestException("Schedule cannot be empty");
+  }
+
+  // ✅ Update schedule of the specific teacher using positional operator
+  await this.classModel.findByIdAndUpdate(
+    classId,
+    {
+      $set: {
+        [`assignes.${teacherIndex}.schedule`]: schedule,
+      },
+    },
+    { new: true }
+  );
+
+  return { message: "Schedule updated successfully" };
+}
+
+async addTeacherSchedule(
+  classId: string,
+  teacherId: string,
+  schedule: { day: string; startTime: string; endTime: string }[]
+) {
+  const classTeachers = await this.checkTeachers(classId, teacherId);
+
+  // ✅ Guard against undefined
+  if (!classTeachers || classTeachers.length === 0) {
+    throw new NotFoundException("No teachers assigned to this class");
+  }
+
+  const teacherIndex = classTeachers.findIndex(
+    (t) => t.teacherId.toString() === teacherId
+  );
+
+  if (teacherIndex === -1) {
+    throw new NotFoundException("Teacher is not assigned to this class");
+  }
+
+  if (!schedule || schedule.length === 0) {
+    throw new BadRequestException("Schedule cannot be empty");
+  }
+
+  const existingDays = classTeachers[teacherIndex].schedule?.map((s) => s.day) ?? [];
+  const duplicates   = schedule.filter((s) => existingDays.includes(s.day));
+
+  if (duplicates.length > 0) {
+    throw new ConflictException(
+      `Schedule already exists for: ${duplicates.map((d) => d.day).join(", ")}`
+    );
+  }
+
+  await this.classModel.findByIdAndUpdate(
+    classId,
+    {
+      $push: {
+        [`assignes.${teacherIndex}.schedule`]: { $each: schedule },
+      },
+    },
+    { new: true }
+  );
+
+  return { message: "Schedule entries added successfully" };
+}
 
   async addStudentInClass(classId:string,studentId:string){
     const allStudents=await this.checkStudents(classId,studentId);
@@ -153,6 +240,24 @@ async getAssignedTeacherList(classId:string){
       message:"Teacher removed",
     }
   }
+  async updateAssignedTeacher(classId: string, teacherId: string, dto: Partial<AssignedTeacherDto>) {
+  const cls = await this.classModel.findById(classId);
+  if (!cls) throw new NotFoundException("Class not found");
+
+  const index = cls.assignes?.findIndex(
+    (a) => a.teacherId.toString() === teacherId
+  );
+  if (index === -1 || index === undefined) {
+    throw new NotFoundException("Teacher not assigned to this class");
+  }
+
+  if (dto.subject)  cls.assignes[index].subject  = dto.subject;
+  if (dto.schedule) cls.assignes[index].schedule = dto.schedule;
+
+  cls.markModified("assignes"); // ✅ required for nested array updates
+  await cls.save();
+  return { message: "Assignment updated successfully", class: cls };
+}
 
   async updateClassCredentials(classId:string,dto:UpdateClassDto){
       const updateData:any={};

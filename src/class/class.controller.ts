@@ -3,7 +3,7 @@ import { HodGuard } from 'src/others-stuff/guards/hod.guard';
 import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { ClassService } from './class.service';
 import { CreateClassDto } from './dto/class.dto';
-import { AssignedTeacherDto } from './dto/assignes.dto';
+import { AssignedTeacherDto, UpdateScheduleDto } from './dto/assignes.dto';
 import { UpdateClassDto } from './dto/updateClass.dto';
 import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
 
@@ -38,10 +38,43 @@ export class ClassController {
     return this.classservice.getClasses(category);
   }
 
+  // class.controller.ts
+
+@Patch(':id/assignes/:teacherId/schedule')
+@UseGuards(AdminGuard)
+updateTeacherSchedule(
+  @Param('id') classId: string,
+  @Param('teacherId') teacherId: string,
+  @Body() dto: UpdateScheduleDto,
+) {
+  return this.classservice.updateTeacherSchedule(classId, teacherId, dto.schedule);
+}
+
+// POST /classes/:id/assignes/:teacherId/schedule
+@Post(':id/assignes/:teacherId/schedule')
+@UseGuards(AdminGuard)
+addTeacherSchedule(
+  @Param('id') classId: string,
+  @Param('teacherId') teacherId: string,
+  @Body() dto: UpdateScheduleDto,
+) {
+  return this.classservice.addTeacherSchedule(classId, teacherId, dto.schedule);
+}
+
 @UseGuards(HodGuard)
   @Patch("remove-student-from-class/:classId/:studentId")
   removeStudent(@Param('classId') classId:string,@Param('studentId') studentId:string){
     return this.classservice.removeStudentFromClass(classId,studentId);
+  }
+
+   @Patch(":id/assignes/:teacherId")
+  @UseGuards(AdminGuard)
+  updateAssignedTeacher(
+    @Param("id") id: string,
+    @Param("teacherId") teacherId: string,
+    @Body() dto: Partial<AssignedTeacherDto>
+  ) {
+    return this.classservice.updateAssignedTeacher(id, teacherId, dto);
   }
 
   @UseGuards(HodGuard)
