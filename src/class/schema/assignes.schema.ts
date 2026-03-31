@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
+import { User } from 'src/user/schema/user.schema';
 
 @Schema({ _id: false })
 export class Schedule {
@@ -17,7 +18,7 @@ export const ScheduleSchema = SchemaFactory.createForClass(Schedule);
 
 @Schema({ _id: false, timestamps: true })
 export class AssignedTeacher {
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: Types.ObjectId, required: true,ref:User.name })
   teacherId: Types.ObjectId;
 
   @Prop({ required: true })
