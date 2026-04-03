@@ -70,4 +70,10 @@ export class UserController {
   deleteUser(@Param('id') id: string) {
     return this.userService.deleteUser(id);
   }
+
+  @Get('get-schedule/:teacherId')
+  @UseGuards(AdminGuard)
+    getTeacherSchedule(@Param ('teacherId') teacherId:string){
+      return this.userService.getTeacherSchedule(teacherId);
+    }
 }
