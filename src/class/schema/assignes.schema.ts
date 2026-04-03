@@ -4,13 +4,13 @@ import { Types } from 'mongoose';
 @Schema({ _id: false })
 export class Schedule {
   @Prop({ required: true })
-  day: string;
+  day!: string;
 
   @Prop({ required: true })
-  startTime: string;
+  startTime!: string;
 
   @Prop({ required: true })
-  endTime: string;
+  endTime!: string;
 }
 
 export const ScheduleSchema = SchemaFactory.createForClass(Schedule);
@@ -18,13 +18,13 @@ export const ScheduleSchema = SchemaFactory.createForClass(Schedule);
 @Schema({ _id: false, timestamps: true })
 export class AssignedTeacher {
   @Prop({ type: Types.ObjectId, required: true })
-  teacherId: Types.ObjectId;
+  teacherId!: Types.ObjectId;
 
   @Prop({ required: true })
   subject?: string;
 
   @Prop({ type: [ScheduleSchema], default: [] })
-  schedule: Schedule[];
+  schedule?: Schedule[];
 }
 
 export const AssignedTeacherSchema = SchemaFactory.createForClass(AssignedTeacher);

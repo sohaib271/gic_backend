@@ -9,23 +9,23 @@ import { AssignedTeacherDto } from './assignes.dto';
 export class CreateClassDto {
   @IsNotEmpty({ message: 'Class name is required' })
   @IsString()
-  className: string;
+  className!: string;
 
   @IsMongoId({ message: 'Invalid department' })
-  departmentId: string;
+  departmentId!: string;
 
   @IsMongoId({ message: 'Invalid creator ID' })
-  createdBy: string;
+  createdBy!: string;
 
   @IsNotEmpty({ message: 'Session is required' })
   @IsString()
-  session: string;
+  session!: string;
 
   @IsIn(['I', 'II'], { message: 'Class must be I or II for intermediate' })
-  class: string;
+  class!: string;
 
   // ✅ Always "intermediate" — set in service, not sent from frontend
-  category: string;
+  category?: string;
 
   @IsArray()
   @ValidateNested({ each: true })

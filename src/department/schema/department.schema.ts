@@ -6,7 +6,7 @@ export type DepartmentDocument = Department & Document;
 @Schema({ timestamps: true })
 export class Department {
   @Prop({ required: true, unique: true })
-  name: string;
+  name!: string;
 
   @Prop()
   code?: string;

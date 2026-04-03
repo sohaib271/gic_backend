@@ -8,16 +8,16 @@ export type UserDocument = User & Document;
 @Schema({ timestamps: true })
 export class User {
   @Prop({ required: true, unique: true })
-  specialId: string;
+  specialId!: string;
 
   @Prop({type:String,default:null})
-  otp:string | null;
+  otp?:string | null;
 
   @Prop({type:Number,default:null})
-   otpExpiry:number | null;
+   otpExpiry?:number | null;
 
   @Prop({required:true,unique:true})
-  email:string;
+  email!:string;
 
   @Prop({default:null})
   city?:string;
@@ -32,16 +32,16 @@ export class User {
   image?:string
 
   @Prop({ required: true })
-  name: string;
+  name!: string;
 
   @Prop({ required: true })
-  lastName: string;
+  lastName!: string;
 
   @Prop({ required: true, unique: true })
-  cnic: string;
+  cnic!: string;
 
   @Prop({ required: true,unique:true })
-  phone: string;
+  phone!: string;
 
   @Prop()
   address?: string;
@@ -50,23 +50,23 @@ export class User {
     required: true,
     enum: UserRoleEnum,
   })
-  role: string;
+  role!: string;
 
   @Prop()
-  password: string;
+  password!: string;
 
   @Prop()
   verifyToken?: string;
 
   @Prop({ default: false })
-  isQrScanned: boolean;
+  isQrScanned?: boolean;
 
   /* =======================
      STUDENT FIELDS
   ======================== */
 
   @Prop({ type: Types.ObjectId, ref: 'Department' })
-  department: Types.ObjectId;
+  department?: Types.ObjectId;
 
   @Prop()
   session?: string;
@@ -95,7 +95,7 @@ export class User {
   isHod?: boolean;
 
   @Prop({default:null})
-  doj:string
+  doj?:string
 
   @Prop({ default: false })
   isPrincipal?: boolean;

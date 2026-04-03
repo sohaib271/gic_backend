@@ -11,31 +11,31 @@ export type ClassDocument = Class & Document;
 export class Class {
 
   @Prop({ required: true, unique: true })
-  className: string;
+  className!: string;
 
   @Prop({type: Types.ObjectId, ref: User.name,required:true })
-  createdBy:Types.ObjectId;
+  createdBy!:Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: Department.name,required:true })
-  departmentId:Types.ObjectId;
+  departmentId!:Types.ObjectId;
 
   @Prop({type:[{ type: Types.ObjectId, ref: User.name}],default:[]})
-  classStudents:Types.ObjectId[];
+  classStudents?:Types.ObjectId[];
 
   @Prop([AssignedTeacherSchema])
-  assignes:AssignedTeacher[];
+  assignes?:AssignedTeacher[];
 
   @Prop([String])
   subjects?: string[];
   
   @Prop({required:true,enum:["intermediate","bs","adp"]})
-  category:string;
+  category!:string;
 
   @Prop({required:true})
-  session: string;
+  session!: string;
 
   @Prop({required:true,enum:["I","II","III","IV","V","VI","VII","VIII"]})
-  class: string;
+  class!: string;
 }
 
 export const ClassSchema = SchemaFactory.createForClass(Class);

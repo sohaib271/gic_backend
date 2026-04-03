@@ -67,7 +67,7 @@ async getClassStudentList(classId:string){
   }
 
   const classStudents=isExist?.classStudents;
-  if(classStudents.length===0){
+  if(classStudents?.length===0){
     throw new BadRequestException("Class has no students.")
   }
 
@@ -85,7 +85,7 @@ async getAssignedTeacherList(classId:string){
 
   const assignedTeachers=isExist?.assignes;
 
-  if(assignedTeachers.length===0){
+  if(assignedTeachers?.length===0){
     throw new BadRequestException('Class has no teachers assigned.');
   }
 
@@ -249,7 +249,11 @@ async addTeacherSchedule(
   );
   if (index === -1 || index === undefined) {
     throw new NotFoundException("Teacher not assigned to this class");
+    
   }
+  if (!cls.assignes || cls.assignes.length === 0) {
+  throw new NotFoundException("No teachers assigned to this class");
+}
 
   if (dto.subject)  cls.assignes[index].subject  = dto.subject;
   if (dto.schedule) cls.assignes[index].schedule = dto.schedule;
