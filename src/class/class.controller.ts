@@ -20,7 +20,7 @@ export class ClassController {
     return this.classservice.createClass(dto,req.user.sub);
   }
 
-  @UseGuards(HodGuard)
+  @UseGuards(AdminGuard)
   @Post("assign-teacher-to-class/:id")
   addTeacher(@Param('id') id:string, @Body() dto:AssignedTeacherDto){
     return this.classservice.addTeacherInClass(dto,id);
@@ -61,7 +61,7 @@ addTeacherSchedule(
   return this.classservice.addTeacherSchedule(classId, teacherId, dto.schedule);
 }
 
-@UseGuards(HodGuard)
+@UseGuards(AdminGuard)
   @Patch("remove-student-from-class/:classId/:studentId")
   removeStudent(@Param('classId') classId:string,@Param('studentId') studentId:string){
     return this.classservice.removeStudentFromClass(classId,studentId);
@@ -77,13 +77,13 @@ addTeacherSchedule(
     return this.classservice.updateAssignedTeacher(id, teacherId, dto);
   }
 
-  @UseGuards(HodGuard)
+  @UseGuards(AdminGuard)
   @Patch("remove-teacher-from-class/:classId/:teacherId")
   removeTeacher(@Param('classId') classId:string,@Param('teacherId') teacherId:string){
     return this.classservice.removeTeacherFromClass(classId,teacherId);
   }
 
-  @UseGuards(HodGuard)
+  @UseGuards(AdminGuard)
   @Patch("update-class/:classId")
   updateClass(@Param('classId') classId:string,@Body()dto:UpdateClassDto){
     return this.classservice.updateClassCredentials(classId,dto);

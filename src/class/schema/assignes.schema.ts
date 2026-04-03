@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
+import { User } from 'src/user/schema/user.schema';
 
 @Schema({ _id: false })
 export class Schedule {

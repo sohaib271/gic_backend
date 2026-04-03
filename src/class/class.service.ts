@@ -15,7 +15,7 @@ export class ClassService {
     const filter = category ? { category } : {};
     const classes=await this.classModel.find(filter).populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"}).populate({
     path: "departmentId",
-  });;
+  }).populate({path:"assignes.teacherId",select:"name"});
     if(classes.length==0){
       return "No Class created";
     }
@@ -48,8 +48,10 @@ export class ClassService {
 }
 
 async getClassInfo(classId:string){
-  const isExist=await this.classModel.findById({_id:classId}).populate("departmentId");
-
+  const isExist=await this.classModel.findById({_id:classId}).populate("departmentId").populate({
+    path: "assignes.teacherId",
+    select: "name" // only fetch firstName
+  });
   if(!isExist){
     throw new NotFoundException("Class doesn't exist");
   }
@@ -78,7 +80,6 @@ async getClassStudentList(classId:string){
 
 async getAssignedTeacherList(classId:string){
   const isExist=await this.classModel.findById({_id:classId},{assignes:1});
-
   if(!isExist){
     throw new NotFoundException('Class doesnt exist');
   }
