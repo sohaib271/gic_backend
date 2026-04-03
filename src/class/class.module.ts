@@ -4,7 +4,6 @@ import { AuthModule } from 'src/auth/auth.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Class, ClassSchema } from './schema/class.schema';
 import { ClassController } from './class.controller';
-import { UserModule } from 'src/user/user.module';
 import { User, UserSchema } from 'src/user/schema/user.schema';
 
 

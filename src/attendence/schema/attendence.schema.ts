@@ -1,4 +1,4 @@
-import { Prop, Schema } from "@nestjs/mongoose";
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { Types } from "mongoose";
 import { Class } from "src/class/schema/class.schema";
 import { User } from "src/user/schema/user.schema";
@@ -25,3 +25,5 @@ export class Attendance {
   @Prop()
   lectureNumber?: number;
 }
+
+export const AttendenceSchema = SchemaFactory.createForClass(Attendance);

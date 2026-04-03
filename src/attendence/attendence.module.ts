@@ -5,10 +5,12 @@ import { Class, ClassSchema } from 'src/class/schema/class.schema';
 import { AuthModule } from 'src/auth/auth.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { User, UserSchema } from 'src/user/schema/user.schema';
+import { Attendance, AttendenceSchema } from './schema/attendence.schema';
+
 
 @Module({
-  imports:[AuthModule,MongooseModule.forFeature([{name:Class.name,schema:ClassSchema},{name:User.name,schema:UserSchema}])],
+  imports:[AuthModule,MongooseModule.forFeature([{name:Class.name,schema:ClassSchema},{name:User.name,schema:UserSchema}, {name:Attendance.name,schema:AttendenceSchema}])],
   controllers: [AttendenceController],
-  providers: [AttendenceService]
+  providers: [AttendenceService],
 })
 export class AttendenceModule {}
