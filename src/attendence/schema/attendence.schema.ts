@@ -3,6 +3,8 @@ import { Types } from "mongoose";
 import { Class } from "src/class/schema/class.schema";
 import { User } from "src/user/schema/user.schema";
 
+export type AttendenceDocument = Attendance & Document;
+
 @Schema({ timestamps: true })
 export class Attendance {
   @Prop({ type: Types.ObjectId, ref: Class.name, required: true })
@@ -14,12 +16,12 @@ export class Attendance {
   @Prop({ type: Types.ObjectId, ref: User.name, required: true })
   teacherId!: Types.ObjectId;
 
-  @Prop({ required: true })
+  @Prop({ required: true,default:false })
   isPresent!: boolean;
 
   @Prop({ required: true })
   date!: Date;
 
   @Prop()
-  lectureNumber?: number; // optional but VERY useful
+  lectureNumber?: number;
 }
