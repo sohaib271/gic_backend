@@ -22,7 +22,8 @@ export class AttendenceController {
 
   // ✅ Mark single student attendance
   @Post('mark')
-  @UseGuards(HodGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin","proff")
   markAttendence(@Body() dto: CreateAttendenceDto) {
     return this.attendenceService.markAttendence(dto);
   }
