@@ -1,12 +1,15 @@
 import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from './roles.decorator';
+import { InjectModel } from '@nestjs/mongoose';
+import { User, UserDocument } from 'src/user/schema/user.schema';
+import { Model } from 'mongoose';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(private reflector: Reflector,@InjectModel(User.name)private userModel:Model<UserDocument>) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredRoles = this.reflector.getAllAndOverride<string[]>(
       ROLES_KEY,
       [context.getHandler(), context.getClass()],
@@ -17,6 +20,12 @@ export class RolesGuard implements CanActivate {
     }
 
     const { user } = context.switchToHttp().getRequest();
-    return requiredRoles.some((role) => user.role === role);
+    const findU=await this.userModel.findById({_id:user.sub});
+    console.log(findU)
+    return requiredRoles.some((role) => {
+      if(role==="hod"){
+        return findU?.isHod===true;
+      }
+      return user.role === role});
   }
 }

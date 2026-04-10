@@ -6,6 +6,8 @@ import { CreateClassDto } from './dto/class.dto';
 import { AssignedTeacherDto, UpdateScheduleDto } from './dto/assignes.dto';
 import { UpdateClassDto } from './dto/updateClass.dto';
 import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
+import { RolesGuard } from 'src/others-stuff/guards/roles.guard';
+import { Roles } from 'src/others-stuff/guards/roles.decorator';
 
 @UseGuards(AuthGuard)
 @Controller('class')
@@ -14,25 +16,29 @@ export class ClassController {
 
 
   // @UseGuards(HodGuard)
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   @Post("create")
   createClass(@Req() req:any,@Body() dto:CreateClassDto){
     return this.classservice.createClass(dto,req.user.sub);
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   @Post("assign-teacher-to-class/:id")
   addTeacher(@Param('id') id:string, @Body() dto:AssignedTeacherDto){
     return this.classservice.addTeacherInClass(dto,id);
   }
 
-  @UseGuards(HodGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   @Post("add-student-in-class/:classId/:studentId")
   addStudent(@Param('classId') classId:string, @Param('studentId') studentId:string){
     return this.classservice.addStudentInClass(classId,studentId);
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   @Get('all')
   getClasses(@Query('category') category?: string){
     return this.classservice.getClasses(category);
@@ -41,7 +47,8 @@ export class ClassController {
   // class.controller.ts
 
 @Patch(':id/assignes/:teacherId/schedule')
-@UseGuards(AdminGuard)
+@UseGuards(RolesGuard)
+@Roles("admin","hod")
 updateTeacherSchedule(
   @Param('id') classId: string,
   @Param('teacherId') teacherId: string,
@@ -52,7 +59,8 @@ updateTeacherSchedule(
 
 // POST /classes/:id/assignes/:teacherId/schedule
 @Post(':id/assignes/:teacherId/schedule')
-@UseGuards(AdminGuard)
+@UseGuards(RolesGuard)
+@Roles("admin","hod")
 addTeacherSchedule(
   @Param('id') classId: string,
   @Param('teacherId') teacherId: string,
@@ -68,7 +76,8 @@ addTeacherSchedule(
   }
 
    @Patch(":id/assignes/:teacherId")
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   updateAssignedTeacher(
     @Param("id") id: string,
     @Param("teacherId") teacherId: string,
@@ -77,28 +86,36 @@ addTeacherSchedule(
     return this.classservice.updateAssignedTeacher(id, teacherId, dto);
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   @Patch("remove-teacher-from-class/:classId/:teacherId")
   removeTeacher(@Param('classId') classId:string,@Param('teacherId') teacherId:string){
     return this.classservice.removeTeacherFromClass(classId,teacherId);
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   @Patch("update-class/:classId")
   updateClass(@Param('classId') classId:string,@Body()dto:UpdateClassDto){
     return this.classservice.updateClassCredentials(classId,dto);
   }
 
+ @UseGuards(RolesGuard)
+  @Roles("admin","hod") 
   @Get("get-class-info/:classId")
   getClassInfo(@Param('classId') classId:string){
     return this.classservice.getClassInfo(classId);
   }
 
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   @Get('get-class-students/:classId')
   getClassStudents(@Param('classId') classId:string){
     return this.classservice.getClassStudentList(classId);
   }
 
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   @Get('get-assigned-teachers/:classId')
   getAssignedTeachers(@Param('classId') classId:string){
     return this.classservice.getAssignedTeacherList(classId);
