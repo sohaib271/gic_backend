@@ -11,19 +11,24 @@ import { CreateBaseUserDto } from './create-base-user.dto';
 export class CreateStudentDto extends CreateBaseUserDto {
   @IsNotEmpty({message:"Department is required"})
   @IsMongoId()
-  department: string;
+  department!: string;
 
   @IsNotEmpty({message:"Session is required"})
   @IsString()
-  session: string;
+  session!: string;
 
   @IsArray()
   @IsOptional()
   subjects?: string[];
 
+  @IsNotEmpty({message:"Roll No is required"})
+  @IsString()
+  rollNo!: number;
+
+
   @IsString()
   @IsNotEmpty({message:"Matric marks are required"})
-  matricMarks: number;
+  matricMarks!: number;
 
   @IsOptional()
   @IsString()

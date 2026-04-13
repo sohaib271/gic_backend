@@ -71,6 +71,9 @@ export class User {
   @Prop()
   session?: string;
 
+  @Prop()
+  rollNo!:number;
+
   @Prop({enum:["intermediate","bs","adp"],default:null})
   category?:string;
 
