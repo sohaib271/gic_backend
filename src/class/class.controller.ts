@@ -6,6 +6,8 @@ import { CreateClassDto } from './dto/class.dto';
 import { AssignedTeacherDto, UpdateScheduleDto } from './dto/assignes.dto';
 import { UpdateClassDto } from './dto/updateClass.dto';
 import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
+import { RolesGuard } from 'src/others-stuff/guards/roles.guard';
+import { Roles } from 'src/others-stuff/guards/roles.decorator';
 
 @UseGuards(AuthGuard)
 @Controller('class')
@@ -20,7 +22,8 @@ export class ClassController {
     return this.classservice.createClass(dto,req.user.sub);
   }
 
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin")
   @Post("assign-teacher-to-class/:id")
   addTeacher(@Param('id') id:string, @Body() dto:AssignedTeacherDto){
     return this.classservice.addTeacherInClass(dto,id);
