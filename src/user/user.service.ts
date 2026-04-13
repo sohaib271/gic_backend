@@ -15,11 +15,13 @@ import { CreateProfessorDto } from './dto/create-user.dto/create-professor.dto';
 import { CreateStaffDto } from './dto/create-user.dto/create-staff.dto';
 import { v4 as uuidv4 } from 'uuid';
 import { Department } from 'src/department/schema/department.schema';
+import { Class, ClassDocument } from 'src/class/schema/class.schema';
+import { Types } from 'mongoose';
 
 @Injectable()
 export class UserService {
   constructor(@InjectModel(User.name) private userModel: Model<UserDocument>, 
-@InjectModel('Department') private departmentModel: Model<Department>,) {}
+@InjectModel('Department') private departmentModel: Model<Department>, @InjectModel(Class.name) private classModel:Model<ClassDocument>) {}
 
   hashPassword(password: string) {
     return bcrypt.hash(password, 10);
@@ -129,7 +131,6 @@ export class UserService {
       throw new InternalServerErrorException('Something went wrong');
     }
   }
-
   /* ======================
      CREATE STAFF
   ======================= */
@@ -192,6 +193,44 @@ export class UserService {
 
     return this.sanitizeUser(user);
   }
+
+  // class.service.ts
+async getTeacherSchedule(teacherId: string) {
+  const isExist = await this.userModel.findById(teacherId);
+  if (!isExist) throw new NotFoundException("Teacher not found");
+
+  // ✅ Find all classes where this teacher is assigned
+  const classes = await this.classModel
+    .find({ "assignes.teacherId": teacherId })
+    .populate({ path: "departmentId", select: "name code" })
+    .select("className category class session assignes departmentId");
+
+  if (!classes.length) {
+    return { schedule: [] };
+  }
+
+  // ✅ Extract only this teacher's schedule entries from each class
+  const schedule = classes.flatMap((cls) => {
+    const assignment = cls.assignes?.find(
+      (a) => a.teacherId.toString() === teacherId
+    );
+    if (!assignment) return [];
+
+    return (assignment.schedule ?? []).map((s) => ({
+      day:       s.day,
+      startTime: s.startTime,
+      endTime:   s.endTime,
+      subject:   assignment.subject,
+      className: cls.className,
+      category:  cls.category,
+      class:     cls.class,
+      session:   cls.session,
+      department: (cls.departmentId as any)?.code ?? "—",
+    }));
+  });
+
+  return { schedule };
+}
 
   /* ======================
      UPDATE USER

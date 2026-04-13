@@ -18,7 +18,7 @@ export const ScheduleSchema = SchemaFactory.createForClass(Schedule);
 
 @Schema({ _id: false, timestamps: true })
 export class AssignedTeacher {
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: Types.ObjectId,ref:User.name, required: true })
   teacherId!: Types.ObjectId;
 
   @Prop({ required: true })
