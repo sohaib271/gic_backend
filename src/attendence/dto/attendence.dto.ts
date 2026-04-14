@@ -40,6 +40,10 @@ export class UpdateAttendenceDto{
   @IsIn(["A", "P", "L"], { message: "Status must be A (Absent), P (Present), or L (Leave)" })
   attendenceStatus!: string;
 
+  @IsOptional()
+  @IsNumber()
+  lectureNumber?: number;  
+
 }
 
 // ✅ For marking attendance for an entire class in one request

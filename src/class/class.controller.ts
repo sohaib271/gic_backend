@@ -57,6 +57,13 @@ updateTeacherSchedule(
   return this.classservice.updateTeacherSchedule(classId, teacherId, dto.schedule);
 }
 
+@Get("/my-classes")
+@UseGuards(RolesGuard)
+@Roles("proff")
+getMyClasses(@Req() req:any){
+  return this.classservice.getMyClasses(req?.user.sub);
+}
+
 // POST /classes/:id/assignes/:teacherId/schedule
 @Post(':id/assignes/:teacherId/schedule')
 @UseGuards(RolesGuard)
@@ -101,7 +108,7 @@ addTeacherSchedule(
   }
 
  @UseGuards(RolesGuard)
-  @Roles("admin","hod") 
+  @Roles("admin","proff") 
   @Get("get-class-info/:classId")
   getClassInfo(@Param('classId') classId:string){
     return this.classservice.getClassInfo(classId);

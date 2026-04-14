@@ -29,10 +29,12 @@ export class AttendenceService {
     if (!teacher) throw new NotFoundException("Teacher does not exist");
 
     // 3. Teacher must be assigned to this class
-    const isAssigned = await this.isAssigned(dto.teacherId, dto.classId);
-    if (!isAssigned) {
-      throw new ForbiddenException("Teacher is not assigned to this class");
-    }
+      const assignment = cls.assignes?.find(
+    (a) => a.teacherId.toString() === dto.teacherId
+  );
+  if (!assignment || !assignment.schedule || assignment.schedule.length === 0) {
+    throw new BadRequestException("Teacher has no schedule assigned in this class");
+  }
 
     // 4. Student must be enrolled in this class
     const isEnrolled = cls.classStudents?.some(
@@ -62,6 +64,51 @@ export class AttendenceService {
           : "Attendance already marked for this student on this date"
       );
     }
+
+
+  const dayNames   = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const recordDay  = dayNames[dateObj.getDay()]; // e.g. "Monday"
+
+  // 9. ✅ Find matching schedule entry for this day
+  const scheduledSlot = assignment.schedule.find(
+    (s) => s.day.toLowerCase() === recordDay.toLowerCase()
+  );
+  if (!scheduledSlot) {
+    throw new ForbiddenException(
+      `You are not scheduled to teach on ${recordDay}. Cannot mark attendance for this date.`
+    );
+  }
+
+  // 10. ✅ Validate current time is within the lecture window
+  const now       = new Date();
+  const nowHours  = now.getHours();
+  const nowMins   = now.getMinutes();
+  const nowTotal  = nowHours * 60 + nowMins; // current time in total minutes
+
+  // Parse startTime and endTime (format: "HH:MM")
+  const [startH, startM] = scheduledSlot.startTime.split(":").map(Number);
+  const [endH,   endM]   = scheduledSlot.endTime.split(":").map(Number);
+  const startTotal = startH * 60 + startM;
+  const endTotal   = endH   * 60 + endM;
+
+  // 11. ✅ Validate the update is happening on the same date as the record
+  const today        = new Date();
+  const todayStart   = new Date(today.setHours(0,  0,  0, 0));
+  const todayEnd     = new Date(today.setHours(23, 59, 59, 999));
+  const recordDateMs = dateObj.getTime();
+
+  if (recordDateMs < todayStart.getTime() || recordDateMs > todayEnd.getTime()) {
+    throw new ForbiddenException(
+      "You can only mark attendance for today's date"
+    );
+  }
+
+  // 12. ✅ Validate current time is within the scheduled lecture window
+  if (nowTotal < startTotal || nowTotal > endTotal) {
+    throw new ForbiddenException(
+      `Attendance can only be marked during the lecture hours: ${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
+    );
+  }
 
     // 6. Save
     const record = new this.attendenceModel({

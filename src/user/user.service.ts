@@ -228,7 +228,6 @@ async getTeacherSchedule(teacherId: string) {
       department: (cls.departmentId as any)?.code ?? "—",
     }));
   });
-
   return { schedule };
 }
 

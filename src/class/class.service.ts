@@ -22,6 +22,19 @@ export class ClassService {
 
     return classes;
   }
+
+  async getMyClasses(teacherId){
+       const classes=await this.classModel.find({"assignes.teacherId": teacherId}).populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"}).populate({
+    path: "departmentId",
+  }).populate({path:"assignes.teacherId",select:"name"});
+    if(classes.length==0){
+      return "No Class created";
+    }
+
+    return classes;
+  }
+
+  
   async createClass(dto: CreateClassDto, createdBy: string) {
   try {
     const isExist = await this.classModel.findOne({ className: dto.className });

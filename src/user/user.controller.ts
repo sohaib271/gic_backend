@@ -16,6 +16,8 @@ import { CreateProfessorDto } from './dto/create-user.dto/create-professor.dto';
 import { CreateStaffDto } from './dto/create-user.dto/create-staff.dto';
 import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
+import { RolesGuard } from 'src/others-stuff/guards/roles.guard';
+import { Roles } from 'src/others-stuff/guards/roles.decorator';
 
 @Controller('users')
 @UseGuards(AuthGuard) // All routes require authentication
@@ -72,7 +74,8 @@ export class UserController {
   }
 
   @Get('get-schedule/:teacherId')
-  @UseGuards(AdminGuard)
+  @UseGuards(RolesGuard)
+  @Roles("admin","proff")
     getTeacherSchedule(@Param ('teacherId') teacherId:string){
       return this.userService.getTeacherSchedule(teacherId);
     }
