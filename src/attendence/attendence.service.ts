@@ -124,70 +124,157 @@ export class AttendenceService {
     return { message: "Attendance marked successfully", record };
   }
 
+  // attendence.service.ts — add this method
+async getMyAttendanceHistory(teacherId: string, classId?: string) {
+  const filter: any = { teacherId };
+  if (classId) filter.classId = classId;
+
+  const records = await this.attendenceModel
+    .find(filter)
+    .populate({ path: "studentId", select: "name lastName specialId" })
+    .populate({ path: "classId",   select: "className category session" })
+    .sort({ date: -1 });
+
+  // ✅ Group by classId → date → records
+  const grouped: Record<string, { className: string; dates: Record<string, any[]> }> = {};
+
+  records.forEach((r: any) => {
+    const cid   = r.classId?._id?.toString();
+    const cname = r.classId?.className ?? "Unknown";
+    const dateKey = new Date(r.date).toISOString().split("T")[0];
+
+    if (!grouped[cid]) grouped[cid] = { className: cname, dates: {} };
+    if (!grouped[cid].dates[dateKey]) grouped[cid].dates[dateKey] = [];
+    grouped[cid].dates[dateKey].push(r);
+  });
+
+  return { history: grouped, total: records.length };
+}
+
+// ── Also add: get attendance for a specific class+date (for professor view)
+async getClassAttendanceForTeacher(classId: string, teacherId: string, date: string) {
+  const cls = await this.classModel.findById(classId);
+  if (!cls) throw new NotFoundException("Class does not exist");
+
+  const isAssigned = await this.isAssigned(teacherId, classId);
+  if (!isAssigned) throw new ForbiddenException("You are not assigned to this class");
+
+  const dateObj  = new Date(date);
+  const dayStart = new Date(new Date(dateObj).setHours(0,  0,  0, 0));
+  const dayEnd   = new Date(new Date(dateObj).setHours(23, 59, 59, 999));
+
+  const records = await this.attendenceModel
+    .find({ classId, teacherId, date: { $gte: dayStart, $lte: dayEnd } })
+    .populate({ path: "studentId", select: "name lastName specialId" })
+    .sort({ createdAt: 1 });
+
+  return { date, classId, records, total: records.length };
+}
+
   // ── Mark attendance for entire class in one request ───────
   async markBulkAttendence(dto: BulkAttendenceDto) {
-    // 1. Validate class
-    const cls = await this.classModel.findById(dto.classId);
-    if (!cls) throw new NotFoundException("Class does not exist");
+  // 1. Validate class
+  const cls = await this.classModel.findById(dto.classId);
+  if (!cls) throw new NotFoundException("Class does not exist");
 
-    // 2. Validate teacher
-    const teacher = await this.userModel.findOne({ _id: dto.teacherId, role: "proff" });
-    if (!teacher) throw new NotFoundException("Teacher does not exist");
+  // 2. Validate teacher
+  const teacher = await this.userModel.findOne({ _id: dto.teacherId, role: "proff" });
+  if (!teacher) throw new NotFoundException("Teacher does not exist");
 
-    // 3. Teacher must be assigned
-    const isAssigned = await this.isAssigned(dto.teacherId, dto.classId);
-    if (!isAssigned) {
-      throw new ForbiddenException("Teacher is not assigned to this class");
-    }
-
-    // 4. Validate all students are enrolled
-    const enrolledIds = new Set(cls.classStudents?.map((id) => id.toString()));
-    const invalidStudents = dto.records.filter(
-      (r) => !enrolledIds.has(r.studentId)
-    );
-    if (invalidStudents.length > 0) {
-      throw new BadRequestException(
-        `These students are not enrolled in this class: ${invalidStudents.map((r) => r.studentId).join(", ")}`
-      );
-    }
-
-    // 5. Check for duplicate attendance on this date
-    const dateObj  = new Date(dto.date);
-    const dayStart = new Date(new Date(dateObj).setHours(0,  0,  0, 0));
-    const dayEnd   = new Date(new Date(dateObj).setHours(23, 59, 59, 999));
-
-    const existingRecords = await this.attendenceModel.find({
-      classId:   dto.classId,
-      teacherId: dto.teacherId,
-      date:      { $gte: dayStart, $lte: dayEnd },
-      ...(dto.lectureNumber !== undefined && { lectureNumber: dto.lectureNumber }),
-    });
-
-    if (existingRecords.length > 0) {
-      throw new ConflictException(
-        dto.lectureNumber !== undefined
-          ? `Attendance already marked for lecture ${dto.lectureNumber} on this date`
-          : "Attendance already marked for this class on this date"
-      );
-    }
-
-    // 6. Bulk insert
-    const records = dto.records.map((r) => ({
-      classId:          dto.classId,
-      studentId:        r.studentId,
-      teacherId:        dto.teacherId,
-      attendenceStatus: r.attendenceStatus,
-      date:             new Date(dto.date),
-      lectureNumber:    dto.lectureNumber,
-    }));
-
-    await this.attendenceModel.insertMany(records);
-    return {
-      message: `Attendance marked for ${records.length} students`,
-      date:    dto.date,
-      classId: dto.classId,
-    };
+  // 3. ✅ Find assignment (not just isAssigned — we need the schedule too)
+  const assignment = cls.assignes?.find(
+    (a) => a.teacherId.toString() === dto.teacherId
+  );
+  if (!assignment) {
+    throw new ForbiddenException("Teacher is not assigned to this class");
   }
+  if (!assignment.schedule || assignment.schedule.length === 0) {
+    throw new BadRequestException("Teacher has no schedule assigned in this class");
+  }
+
+  // 4. ✅ Check the date is today
+  const dateObj    = new Date(dto.date);
+  const today      = new Date();
+  const todayStart = new Date(new Date(today).setHours(0,  0,  0, 0));
+  const todayEnd   = new Date(new Date(today).setHours(23, 59, 59, 999));
+
+  if (dateObj.getTime() < todayStart.getTime() || dateObj.getTime() > todayEnd.getTime()) {
+    throw new ForbiddenException("You can only mark attendance for today's date");
+  }
+
+  // 5. ✅ Check teacher is scheduled on today's day
+  const dayNames  = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  const todayName = dayNames[dateObj.getDay()];
+
+  const scheduledSlot = assignment.schedule.find(
+    (s) => s.day.toLowerCase() === todayName.toLowerCase()
+  );
+  if (!scheduledSlot) {
+    throw new ForbiddenException(
+      `You are not scheduled to teach on ${todayName}. Cannot mark attendance for this date.`
+    );
+  }
+
+  // 6. ✅ Check current time is within the lecture window
+  const now      = new Date();
+  const nowTotal = now.getHours() * 60 + now.getMinutes();
+
+  const [startH, startM] = scheduledSlot.startTime.split(":").map(Number);
+  const [endH,   endM]   = scheduledSlot.endTime.split(":").map(Number);
+  const startTotal = startH * 60 + startM;
+  const endTotal   = endH   * 60 + endM;
+
+  if (nowTotal < startTotal || nowTotal > endTotal) {
+    throw new ForbiddenException(
+      `Attendance can only be marked during lecture hours: ${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
+    );
+  }
+
+  // 7. Validate all students are enrolled
+  const enrolledIds     = new Set(cls.classStudents?.map((id) => id.toString()));
+  const invalidStudents = dto.records.filter((r) => !enrolledIds.has(r.studentId));
+  if (invalidStudents.length > 0) {
+    throw new BadRequestException(
+      `These students are not enrolled: ${invalidStudents.map((r) => r.studentId).join(", ")}`
+    );
+  }
+
+  // 8. Check for duplicate attendance on this date
+  const dayStart = new Date(new Date(dateObj).setHours(0,  0,  0, 0));
+  const dayEnd   = new Date(new Date(dateObj).setHours(23, 59, 59, 999));
+
+  const existingRecords = await this.attendenceModel.find({
+    classId:   dto.classId,
+    teacherId: dto.teacherId,
+    date:      { $gte: dayStart, $lte: dayEnd },
+    ...(dto.lectureNumber !== undefined && { lectureNumber: dto.lectureNumber }),
+  });
+
+  if (existingRecords.length > 0) {
+    throw new ConflictException(
+      dto.lectureNumber !== undefined
+        ? `Attendance already marked for lecture ${dto.lectureNumber} on this date`
+        : "Attendance already marked for this class on this date"
+    );
+  }
+
+  // 9. Bulk insert
+  const records = dto.records.map((r) => ({
+    classId:          dto.classId,
+    studentId:        r.studentId,
+    teacherId:        dto.teacherId,
+    attendenceStatus: r.attendenceStatus,
+    date:             new Date(dto.date),
+    lectureNumber:    dto.lectureNumber,
+  }));
+
+  await this.attendenceModel.insertMany(records);
+  return {
+    message: `Attendance marked for ${records.length} students`,
+    date:    dto.date,
+    classId: dto.classId,
+  };
+}
 
   // ── Get attendance for a class on a specific date ─────────
   async getClassAttendenceByDate(classId: string, date: string) {

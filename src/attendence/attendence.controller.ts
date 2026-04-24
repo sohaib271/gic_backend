@@ -63,4 +63,28 @@ updateAttendance(@Param('attendanceId') attendanceId:string,@Body() dto: UpdateA
   ) {
     return this.attendenceService.getStudentAttendence(classId, studentId);
   }
+
+  // attendence.controller.ts — add these two routes
+@Get("my-history")
+@UseGuards(RolesGuard)
+@Roles("proff")
+getMyHistory(
+  @Query("teacherId") teacherId: string,
+  @Query("classId")   classId?: string,
+) {
+  return this.attendenceService.getMyAttendanceHistory(teacherId, classId);
+}
+
+@Get("class/:classId/by-teacher")
+@UseGuards(RolesGuard)
+@Roles("proff", "admin")
+getClassAttendanceForTeacher(
+  @Param("classId")   classId:   string,
+  @Query("teacherId") teacherId: string,
+  @Query("date")      date:      string,
+) {
+  if (!date)      return { message: "Please provide a date query param" };
+  if (!teacherId) return { message: "Please provide a teacherId query param" };
+  return this.attendenceService.getClassAttendanceForTeacher(classId, teacherId, date);
+}
 }
