@@ -16,7 +16,7 @@ export class Attendance {
   @Prop({ type: Types.ObjectId, ref: User.name, required: true })
   teacherId!: Types.ObjectId;
 
-  @Prop({ required: true,default:"A",enum:["A","P","L"]})
+  @Prop({ required: true,enum:["A","P","L"]})
   attendenceStatus!: string;
 
   @Prop({ required: true })
