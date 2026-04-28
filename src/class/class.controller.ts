@@ -43,9 +43,6 @@ export class ClassController {
   getClasses(@Query('category') category?: string){
     return this.classservice.getClasses(category);
   }
-
-  // class.controller.ts
-
 @Patch(':id/assignes/:teacherId/schedule')
 @UseGuards(RolesGuard)
 @Roles("admin","hod")
