@@ -181,7 +181,6 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
   const teacher = await this.userModel.findOne({ _id: dto.teacherId, role: "proff" });
   if (!teacher) throw new NotFoundException("Teacher does not exist");
 
-  // 3. ✅ Find assignment (not just isAssigned — we need the schedule too)
   const assignment = cls.assignes?.find(
     (a) => a.teacherId.toString() === dto.teacherId
   );
