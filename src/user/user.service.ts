@@ -20,8 +20,11 @@ import { Types } from 'mongoose';
 
 @Injectable()
 export class UserService {
-  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>, 
-@InjectModel('Department') private departmentModel: Model<Department>, @InjectModel(Class.name) private classModel:Model<ClassDocument>) {}
+  constructor(
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel('Department') private departmentModel: Model<Department>,
+    @InjectModel(Class.name) private classModel: Model<ClassDocument>,
+  ) {}
 
   hashPassword(password: string) {
     return bcrypt.hash(password, 10);
@@ -44,9 +47,11 @@ export class UserService {
         isQrScanned: false,
       });
 
-      const department=await this.departmentModel.findById(student.department);
-      if(!department){
-        throw new BadRequestException("Department not found");
+      const department = await this.departmentModel.findById(
+        student.department,
+      );
+      if (!department) {
+        throw new BadRequestException('Department not found');
       }
       student.specialId = `STU-${department.code}-${student.cnic.slice(-4)}`;
       await student.save();
@@ -195,41 +200,110 @@ export class UserService {
   }
 
   // class.service.ts
-async getTeacherSchedule(teacherId: string) {
-  const isExist = await this.userModel.findById(teacherId);
-  if (!isExist) throw new NotFoundException("Teacher not found");
+  async getTeacherSchedule(teacherId: string) {
+    const isExist = await this.userModel.findById(teacherId);
+    if (!isExist) throw new NotFoundException('Teacher not found');
 
-  // ✅ Find all classes where this teacher is assigned
-  const classes = await this.classModel
-    .find({ "assignes.teacherId": teacherId })
-    .populate({ path: "departmentId", select: "name code" })
-    .select("className category class session assignes departmentId");
+    // ✅ Find all classes where this teacher is assigned
+    const classes = await this.classModel
+      .find({ 'assignes.teacherId': teacherId })
+      .populate({ path: 'departmentId', select: 'name code' })
+      .select('className category class session assignes departmentId');
 
-  if (!classes.length) {
-    return { schedule: [] };
+    if (!classes.length) {
+      return { schedule: [] };
+    }
+
+    // ✅ Extract only this teacher's schedule entries from each class
+    const schedule = classes.flatMap((cls) => {
+      const assignment = cls.assignes?.find(
+        (a) => a.teacherId.toString() === teacherId,
+      );
+      if (!assignment) return [];
+
+      return (assignment.schedule ?? []).map((s) => ({
+        day: s.day,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        subject: assignment.subject,
+        className: cls.className,
+        category: cls.category,
+        class: cls.class,
+        session: cls.session,
+        department: (cls.departmentId as any)?.code ?? '—',
+      }));
+    });
+    return { schedule };
   }
 
-  // ✅ Extract only this teacher's schedule entries from each class
-  const schedule = classes.flatMap((cls) => {
-    const assignment = cls.assignes?.find(
-      (a) => a.teacherId.toString() === teacherId
-    );
-    if (!assignment) return [];
+  async getStudentTimetable(studentId: string) {
+    const student = await this.userModel.findById(studentId);
+    if (!student || student.role !== 'student') {
+      throw new NotFoundException('Student not found');
+    }
 
-    return (assignment.schedule ?? []).map((s) => ({
-      day:       s.day,
-      startTime: s.startTime,
-      endTime:   s.endTime,
-      subject:   assignment.subject,
-      className: cls.className,
-      category:  cls.category,
-      class:     cls.class,
-      session:   cls.session,
-      department: (cls.departmentId as any)?.code ?? "—",
-    }));
-  });
-  return { schedule };
-}
+    const classes = await this.classModel
+      .find({ classStudents: studentId })
+      .populate({ path: 'departmentId', select: 'name code' })
+      .populate({ path: 'assignes.teacherId', select: 'name lastName' })
+      .select('className category class session assignes departmentId');
+
+    if (!classes.length) {
+      return { studentId, timetable: [] };
+    }
+
+    const dayOrder: Record<string, number> = {
+      Sunday: 0,
+      Monday: 1,
+      Tuesday: 2,
+      Wednesday: 3,
+      Thursday: 4,
+      Friday: 5,
+      Saturday: 6,
+    };
+
+    const flatSchedule = classes.flatMap((cls) => {
+      return (cls.assignes ?? []).flatMap((assignment) => {
+        return (assignment.schedule ?? []).map((scheduleItem) => ({
+          classId: cls._id,
+          className: cls.className,
+          category: cls.category,
+          class: cls.class,
+          session: cls.session,
+          department:
+            (cls.departmentId as any)?.code ||
+            (cls.departmentId as any)?.name ||
+            'Unknown',
+          teacherId: (assignment.teacherId as any)?._id ?? null,
+          teacherName: (assignment.teacherId as any)?.name ?? 'Unknown',
+          subject: assignment.subject,
+          day: scheduleItem.day,
+          startTime: scheduleItem.startTime,
+          endTime: scheduleItem.endTime,
+          sortKey: dayOrder[scheduleItem.day] ?? 99,
+        }));
+      });
+    });
+
+    const timetable = flatSchedule
+      .sort((a, b) =>
+        a.sortKey !== b.sortKey
+          ? a.sortKey - b.sortKey
+          : a.startTime.localeCompare(b.startTime),
+      )
+      .map(({ sortKey, ...rest }) => rest);
+
+    const groupedTimetable = timetable.reduce(
+      (acc: Record<string, any[]>, item) => {
+        acc[item.day] = acc[item.day] ?? [];
+        acc[item.day].push(item);
+        return acc;
+      },
+      {},
+    );
+
+    return { studentId, timetable: groupedTimetable };
+  }
 
   /* ======================
      UPDATE USER
