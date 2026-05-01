@@ -129,7 +129,7 @@ async getAssignedTeacherList(classId:string){
         assignes: {
           teacherId: dto.teacherId,
           subject:   dto.subject,
-          schedule:  dto.schedule ?? [],  // ✅ include schedule
+          schedule:  dto.schedule ?? [],
         },
       },
     },
