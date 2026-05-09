@@ -20,10 +20,12 @@ export class RolesGuard implements CanActivate {
     }
 
     const { user } = context.switchToHttp().getRequest();
-    const findU=await this.userModel.findById({_id:user.sub});
+    const findU=await this.userModel.findById(user.sub).select("_id department isHod role").lean();
+    const req = context.switchToHttp().getRequest();
+    const targetDept=req.query.department;
     return requiredRoles.some((role) => {
       if(role==="hod"){
-        return findU?.isHod===true;
+        return (findU?.isHod===true && findU?.department?.toString()===targetDept);
       }
       return user.role === role});
   }

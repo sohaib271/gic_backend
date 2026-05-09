@@ -20,7 +20,7 @@ export class DepartmentService {
   ======================= */
   async createDepartment(dto: CreateDepartmentDto) {
     // Check if department name already exists
-    const existingDept = await this.departmentModel.findOne({
+    const existingDept = await this.departmentModel.exists({
       name: dto.name,
     });
 
@@ -41,7 +41,7 @@ export class DepartmentService {
      GET ALL DEPARTMENTS
   ======================= */
   async getAllDepartments() {
-    const departments = await this.departmentModel.find();
+    const departments = await this.departmentModel.find().lean();
     return departments;
   }
 
@@ -49,7 +49,7 @@ export class DepartmentService {
      GET DEPARTMENT BY ID
   ======================= */
   async getDepartmentById(id: string) {
-    const department = await this.departmentModel.findById(id);
+    const department = await this.departmentModel.findById(id).lean();
 
     if (!department) {
       throw new NotFoundException('Department not found');
@@ -64,7 +64,7 @@ export class DepartmentService {
   async updateDepartment(id: string, updateData: Partial<CreateDepartmentDto>) {
     // Check if updating name to existing name
     if (updateData.name) {
-      const existingDept = await this.departmentModel.findOne({
+      const existingDept = await this.departmentModel.exists({
         name: updateData.name,
         _id: { $ne: id },
       });
