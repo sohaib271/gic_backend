@@ -21,7 +21,7 @@ export class AuthService {
      ADMIN LOGIN
   ======================= */
   async adminLogin(email: string, password: string) {
-    const admin = await this.userModel.findOne({ email, role: 'admin' });
+    const admin = await this.userModel.findOne({ email, role: 'admin' }).select('+password role verifyToken');
 
     if (!admin || !admin.password) {
       throw new UnauthorizedException('Invalid credentials');
@@ -32,7 +32,7 @@ export class AuthService {
     const res=this.signToken(admin);
     const token=res.access_token;
     admin.verifyToken=token;
-    admin.save();
+    await admin.save();
 
     return res;
   }
@@ -42,7 +42,7 @@ export class AuthService {
   }
 
   async forgetPassword(email:string){
-    const user=await this.userModel.findOne({email});
+    const user=await this.userModel.findOne({email}).select("otp otpExpiry");
 
     if(!user){
       throw new BadRequestException("Email does not exist");
@@ -64,7 +64,7 @@ export class AuthService {
   }
 
   async verifyOTP(email:string,otp:string){
-    const user=await this.userModel.findOne({email});
+    const user=await this.userModel.findOne({email}).select("otp otpExpiry");
     
     if(!user || user.otp!==otp || !user.otpExpiry || user.otpExpiry < Date.now()){
       throw new BadRequestException("Invalid or Expired Otp");
@@ -74,7 +74,7 @@ export class AuthService {
   }
 
   async resetPassword(email:string,password:string){
-    const user=await this.userModel.findOne({email});
+    const user=await this.userModel.findOne({email}).select("password otp otpExpiry");
 
     if(!user){
       throw new BadRequestException("User not found");
@@ -133,7 +133,7 @@ export class AuthService {
     if (!match) throw new UnauthorizedException('Invalid credentials');
     const res=this.signToken(user);
     user.verifyToken=res.access_token;
-    user.save();
+    await user.save();
     return res;
   }
 

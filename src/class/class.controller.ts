@@ -5,7 +5,6 @@ import { ClassService } from './class.service';
 import { CreateClassDto } from './dto/class.dto';
 import { AssignedTeacherDto, UpdateScheduleDto } from './dto/assignes.dto';
 import { UpdateClassDto } from './dto/updateClass.dto';
-import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
 import { RolesGuard } from 'src/others-stuff/guards/roles.guard';
 import { Roles } from 'src/others-stuff/guards/roles.decorator';
 
@@ -14,8 +13,6 @@ import { Roles } from 'src/others-stuff/guards/roles.decorator';
 export class ClassController {
   constructor(private readonly classservice:ClassService){}
 
-
-  // @UseGuards(HodGuard)
   @UseGuards(RolesGuard)
   @Roles("admin","hod")
   @Post("create")
@@ -73,7 +70,8 @@ addTeacherSchedule(
   return this.classservice.addTeacherSchedule(classId, teacherId, dto.schedule);
 }
 
-@UseGuards(AdminGuard)
+@UseGuards(RolesGuard)
+@Roles("admin","hod")
   @Patch("remove-student-from-class/:classId/:studentId")
   removeStudent(@Param('classId') classId:string,@Param('studentId') studentId:string){
     return this.classservice.removeStudentFromClass(classId,studentId);

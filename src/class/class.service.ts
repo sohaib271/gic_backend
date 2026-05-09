@@ -13,8 +13,8 @@ export class ClassService {
 
   async getClasses(category?:string){
     const filter = category ? { category } : {};
-    const classes=await this.classModel.find(filter).populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"}).populate({
-    path: "departmentId",
+    const classes=await this.classModel.find(filter).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role -otp -otpExpiry -image -cnic -address -phone -__v -matricMarks"}).populate({
+    path: "departmentId", select:"code _id category"
   }).populate({path:"assignes.teacherId",select:"name"});
     if(classes.length==0){
       return "No Class created";
@@ -24,7 +24,7 @@ export class ClassService {
   }
 
   async getMyClasses(teacherId){
-       const classes=await this.classModel.find({"assignes.teacherId": teacherId}).populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"}).populate({
+       const classes=await this.classModel.find({"assignes.teacherId": teacherId}).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"}).populate({
     path: "departmentId",
   }).populate({path:"assignes.teacherId",select:"name"});
     if(classes.length==0){
@@ -37,7 +37,7 @@ export class ClassService {
   
   async createClass(dto: CreateClassDto, createdBy: string) {
   try {
-    const isExist = await this.classModel.findOne({ className: dto.className });
+    const isExist = await this.classModel.exists({ className: dto.className });
     if (isExist) throw new ConflictException('Class of similar name already exists.');
 
     const newClass = new this.classModel({
@@ -61,7 +61,7 @@ export class ClassService {
 }
 
 async getClassInfo(classId:string){
-  const isExist=await this.classModel.findById({_id:classId}).populate("departmentId").populate({
+  const isExist=await this.classModel.findById(classId).lean().populate("departmentId").populate({
     path: "assignes.teacherId",
     select: "name" // only fetch firstName
   });
@@ -75,7 +75,7 @@ async getClassInfo(classId:string){
 }
 
 async getClassStudentList(classId:string){
-  const isExist=await this.classModel.findById({_id:classId},{classStudents:1}).populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"});
+  const isExist=await this.classModel.findById(classId,{classStudents:1}).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"});
 
   if(!isExist){
     throw new NotFoundException("Class doesn't exist");
@@ -92,7 +92,7 @@ async getClassStudentList(classId:string){
 }
 
 async getAssignedTeacherList(classId:string){
-  const isExist=await this.classModel.findById({_id:classId},{assignes:1});
+  const isExist=await this.classModel.findById(classId,{assignes:1}).lean();
   if(!isExist){
     throw new NotFoundException('Class doesnt exist');
   }
@@ -221,7 +221,7 @@ async addTeacherSchedule(
       throw new ConflictException("Student already exists");
     }
 
-    await this.classModel.findByIdAndUpdate({_id:classId},{$addToSet:{classStudents:studentId}},{new:true});
+    await this.classModel.findByIdAndUpdate(classId,{$addToSet:{classStudents:studentId}},{new:false});
 
     return {
       message:"Student added successfully"
@@ -234,7 +234,7 @@ async addTeacherSchedule(
     if(!isExists){
       throw new ConflictException("Student doesn't exist");
     }
-    await this.classModel.findByIdAndUpdate({_id:classId},{$pull:{classStudents:isExists}});
+    await this.classModel.findByIdAndUpdate(classId,{$pull:{classStudents:isExists}},{new:false});
 
     return {
       message:"Student has been removed from class",
@@ -250,7 +250,7 @@ async addTeacherSchedule(
       throw new ConflictException("Teacher doesn't exist in class");
     }
 
-    await this.classModel.findByIdAndUpdate({_id:classId},{$pull:{assignes:{teacherId}}});
+    await this.classModel.findByIdAndUpdate(classId,{$pull:{assignes:{teacherId}}},{new:false});
 
     return {
       message:"Teacher removed",
@@ -288,7 +288,7 @@ async addTeacherSchedule(
         throw new BadRequestException("Empty fields provided");
       }
 
-      await this.classModel.findByIdAndUpdate({_id:classId},{$set:updateData},{new:true});
+      await this.classModel.findByIdAndUpdate(classId,{$set:updateData},{new:false});
 
       return {
         message:"Updated"
@@ -296,30 +296,33 @@ async addTeacherSchedule(
   }
 
   async checkTeachers(classId:string,teacherId:string){
-    const isExist=await this.findTeacher(teacherId);
-
+    const [isExist, teachers] = await Promise.all([
+      this.findTeacher(teacherId),
+      this.classModel.findById(classId,{assignes:1,_id:0}).lean(),
+    ]);
     if(!isExist){
       throw new UnauthorizedException("Invalid Teacher");
     }
-    const teachers=await this.classModel.findById({_id:classId},{assignes:1,_id:0});
     return teachers?.assignes;
   }
 
   async checkStudents(classId:string,studentId:string){
-    const isExist=await this.findStudent(studentId);
+    const [isExist, cls] = await Promise.all([
+      this.findStudent(studentId),
+      this.classModel.findById(classId,{classStudents:1,_id:0}).lean(),
+    ]);
      if(!isExist){
       throw new UnauthorizedException("Invalid Student");
     }
-    const classStudents=await this.classModel.findById({_id:classId},{classStudents:1,_id:0});
-    return classStudents?.classStudents;
+    return cls?.classStudents;
   }
   private async findTeacher(id:string){
-    const teacher=await this.userModel.findOne({_id:id,role:'proff'},{_id:1});
-    return teacher?._id;
+    const teacher=await this.userModel.exists({_id:id,role:'proff'});
+    return teacher?._id ?? null;
   }
 
   private async findStudent(id:string){
-    const student=await this.userModel.findOne({_id:id,role:'student'},{_id:1});
-    return student?._id;
+    const student=await this.userModel.exists({_id:id,role:'student'});
+    return student?._id ?? null;
   }
 }

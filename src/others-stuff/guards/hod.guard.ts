@@ -14,9 +14,9 @@ export class HodGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
    const user=request.user;
-    const isMatch=await this.userModel.findOne({_id:user.sub,role:"proff"},{isHod:1,_id:0});
+    const isMatch=await this.userModel.exists({_id:user.sub,role:"proff",isHod:true});
     
-    if (!isMatch?.isHod) {
+    if (!isMatch) {
       throw new ForbiddenException('Only hods can access this resource');
     }
 

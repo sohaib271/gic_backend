@@ -39,3 +39,6 @@ export class Class {
 }
 
 export const ClassSchema = SchemaFactory.createForClass(Class);
+ClassSchema.index({ category: 1 });
+ClassSchema.index({ "assignes.teacherId": 1 });
+ClassSchema.index({ departmentId: 1, category: 1 });

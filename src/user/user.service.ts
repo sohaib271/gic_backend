@@ -44,7 +44,7 @@ export class UserService {
         isQrScanned: false,
       });
 
-      const department=await this.departmentModel.findById(student.department);
+      const department=await this.departmentModel.findById(student.department).select("code").lean();
       if(!department){
         throw new BadRequestException("Department not found");
       }
@@ -89,7 +89,7 @@ export class UserService {
       await this.checkDuplicates(dto.cnic);
 
       const verifyToken = uuidv4();
-      const users = await this.getAllUsers();
+      const usersCount = await this.userModel.countDocuments({ role: "proff" });
 
       const professor = new this.userModel({
         ...dto,
@@ -97,7 +97,7 @@ export class UserService {
         password: await this.hashPassword(dto.password),
         verifyToken,
         isQrScanned: false,
-        specialId: `PROF-${dto.cnic.slice(-4)}-${users.length + 1}`,
+        specialId: `PROF-${dto.cnic.slice(-4)}-${usersCount + 1}`,
       });
 
       await professor.save();
@@ -161,7 +161,7 @@ export class UserService {
   ======================= */
   async getAllUsers(role?: string) {
     const filter = role ? { role } : {};
-    const users = await this.userModel.find(filter).populate('department');
+    const users = await this.userModel.find(filter).lean().populate('department');
 
     return users.map((user) => this.sanitizeUser(user));
   }
@@ -170,7 +170,7 @@ export class UserService {
      GET USER BY ID
   ======================= */
   async getUserById(id: string) {
-    const user = await this.userModel.findById(id).populate('department');
+    const user = await this.userModel.findById(id).lean().populate('department');
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -185,6 +185,7 @@ export class UserService {
   async getUserBySpecialId(specialId: string) {
     const user = await this.userModel
       .findOne({ specialId })
+      .lean()
       .populate('department');
 
     if (!user) {
@@ -196,12 +197,13 @@ export class UserService {
 
   // class.service.ts
 async getTeacherSchedule(teacherId: string) {
-  const isExist = await this.userModel.findById(teacherId);
+  const isExist = await this.userModel.exists({ _id: teacherId, role: "proff" });
   if (!isExist) throw new NotFoundException("Teacher not found");
 
   // ✅ Find all classes where this teacher is assigned
   const classes = await this.classModel
     .find({ "assignes.teacherId": teacherId })
+    .lean()
     .populate({ path: "departmentId", select: "name code" })
     .select("className category class session assignes departmentId");
 
@@ -243,7 +245,7 @@ async getTeacherSchedule(teacherId: string) {
 
     // Check if updating specialId or cnic
     if (updateData.specialId && updateData.specialId !== user.specialId) {
-      const existingUser = await this.userModel.findOne({
+      const existingUser = await this.userModel.exists({
         specialId: updateData.specialId,
       });
       if (existingUser) {
@@ -252,7 +254,7 @@ async getTeacherSchedule(teacherId: string) {
     }
 
     if (updateData.cnic && updateData.cnic !== user.cnic) {
-      const existingUser = await this.userModel.findOne({
+      const existingUser = await this.userModel.exists({
         cnic: updateData.cnic,
       });
       if (existingUser) {
@@ -292,7 +294,7 @@ async getTeacherSchedule(teacherId: string) {
   }
 
   async getLoggedInUser(id: string) {
-    const me = await this.userModel.findById(id);
+    const me = await this.userModel.findById(id).lean();
 
     if (!me) {
       throw new NotFoundException('User not found');
@@ -306,7 +308,7 @@ async getTeacherSchedule(teacherId: string) {
      HELPER: CHECK DUPLICATES
   ======================= */
   private async checkDuplicates(cnic: string) {
-    const existingCnic = await this.userModel.findOne({ cnic });
+    const existingCnic = await this.userModel.exists({ cnic });
     if (existingCnic) {
       throw new ConflictException('CNIC already exists');
     }
@@ -315,8 +317,8 @@ async getTeacherSchedule(teacherId: string) {
   /* ======================
      HELPER: SANITIZE USER
   ======================= */
-  private sanitizeUser(user: UserDocument) {
-    const userObject = user.toObject();
+  private sanitizeUser(user: any) {
+    const userObject = typeof user?.toObject === "function" ? user.toObject() : { ...user };
     delete userObject.password;
     delete userObject.verifyToken;
     delete userObject.__v;

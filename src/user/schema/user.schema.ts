@@ -119,3 +119,5 @@ export class User {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+UserSchema.index({ role: 1 });
+UserSchema.index({ department: 1, isHod: 1, role: 1 });

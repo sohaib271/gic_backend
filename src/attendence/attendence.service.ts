@@ -4,7 +4,7 @@ import {
   Injectable, NotFoundException,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model } from "mongoose";
+import { Model, Types } from "mongoose";
 import { Class, ClassDocument } from "src/class/schema/class.schema";
 import { Attendance, AttendenceDocument } from "./schema/attendence.schema";
 import { User, UserDocument } from "src/user/schema/user.schema";
@@ -45,10 +45,11 @@ getNowInPKT():{ nowTotal: number } {
 }
 
   async markAttendence(dto: CreateAttendenceDto) {
-  const cls = await this.classModel.findById(dto.classId);
+  const [cls, teacher] = await Promise.all([
+    this.classModel.findById(dto.classId).select("assignes classStudents").lean(),
+    this.userModel.exists({ _id: dto.teacherId, role: "proff" }),
+  ]);
   if (!cls) throw new NotFoundException("Class does not exist");
-
-  const teacher = await this.userModel.findOne({ _id: dto.teacherId, role: "proff" });
   if (!teacher) throw new NotFoundException("Teacher does not exist");
 
   const assignment = cls.assignes?.find((a) => a.teacherId.toString() === dto.teacherId);
@@ -63,7 +64,7 @@ getNowInPKT():{ nowTotal: number } {
   const { dayStart, dayEnd, dayName } = this.parseDateToUTCRange(dto.date);
 
   // ✅ Check duplicate
-  const duplicate = await this.attendenceModel.findOne({
+  const duplicate = await this.attendenceModel.exists({
     classId:   dto.classId,
     studentId: dto.studentId,
     teacherId: dto.teacherId,
@@ -124,6 +125,7 @@ async getMyAttendanceHistory(teacherId: string, classId?: string) {
 
   const records = await this.attendenceModel
     .find(filter)
+    .lean()
     .populate({ path: "studentId", select: "name lastName specialId" })
     .populate({ path: "classId",   select: "className category session" })
     .sort({ date: -1 });
@@ -146,7 +148,7 @@ async getMyAttendanceHistory(teacherId: string, classId?: string) {
 
 // ── Also add: get attendance for a specific class+date (for professor view)
 async getClassAttendanceForTeacher(classId: string, teacherId: string, date: string) {
-  const cls = await this.classModel.findById(classId);
+  const cls = await this.classModel.findById(classId).select("_id").lean();
   if (!cls) throw new NotFoundException("Class does not exist");
 
   const isAssigned = await this.isAssigned(teacherId, classId);
@@ -156,6 +158,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
 
   const records = await this.attendenceModel
     .find({ classId, teacherId, date: { $gte: dayStart, $lte: dayEnd } })
+    .lean()
     .populate({ path: "studentId", select: "name lastName specialId" })
     .sort({ createdAt: 1 });
 
@@ -164,11 +167,11 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
 
   async markBulkAttendence(dto: BulkAttendenceDto) {
   // 1. Validate class
-  const cls = await this.classModel.findById(dto.classId);
+  const [cls, teacher] = await Promise.all([
+    this.classModel.findById(dto.classId).select("assignes classStudents").lean(),
+    this.userModel.exists({ _id: dto.teacherId, role: "proff" }),
+  ]);
   if (!cls) throw new NotFoundException("Class does not exist");
-
-  // 2. Validate teacher
-  const teacher = await this.userModel.findOne({ _id: dto.teacherId, role: "proff" });
   if (!teacher) throw new NotFoundException("Teacher does not exist");
 
   // 3. Find assignment + schedule
@@ -231,14 +234,14 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
   }
 
   // 9. Check for duplicate attendance
-  const existingRecords = await this.attendenceModel.find({
+  const hasExistingRecords = await this.attendenceModel.exists({
     classId:   dto.classId,
     teacherId: dto.teacherId,
     date:      { $gte: dayStart, $lte: dayEnd },
     ...(dto.lectureNumber !== undefined && { lectureNumber: dto.lectureNumber }),
   });
 
-  if (existingRecords.length > 0) {
+  if (hasExistingRecords) {
     throw new ConflictException(
       dto.lectureNumber !== undefined
         ? `Attendance already marked for lecture ${dto.lectureNumber} on this date`
@@ -262,13 +265,14 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
 
   // ── Get attendance for a class on a specific date ─────────
   async getClassAttendenceByDate(classId: string, date: string) {
-    const cls = await this.classModel.findById(classId);
+    const cls = await this.classModel.findById(classId).select("_id").lean();
     if (!cls) throw new NotFoundException("Class does not exist");
 
    const { dayStart, dayEnd } = this.parseDateToUTCRange(date);
 
     const records = await this.attendenceModel
       .find({ classId, date: { $gte: dayStart, $lte: dayEnd } })
+      .lean()
       .populate({ path: "studentId", select: "name lastName specialId" })
       .populate({ path: "teacherId", select: "name lastName" })
       .sort({ lectureNumber: 1 });
@@ -278,22 +282,37 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
 
   // ── Get attendance summary for a student in a class ───────
   async getStudentAttendence(classId: string, studentId: string) {
-    const records = await this.attendenceModel.find({ classId, studentId });
+    const [records, summary] = await Promise.all([
+      this.attendenceModel.find({ classId, studentId }).lean(),
+      this.attendenceModel.aggregate([
+        { $match: { classId: new Types.ObjectId(classId), studentId: new Types.ObjectId(studentId) } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            present: { $sum: { $cond: [{ $eq: ["$attendenceStatus", "P"] }, 1, 0] } },
+            absent: { $sum: { $cond: [{ $eq: ["$attendenceStatus", "A"] }, 1, 0] } },
+            leave: { $sum: { $cond: [{ $eq: ["$attendenceStatus", "L"] }, 1, 0] } },
+          },
+        },
+      ]),
+    ]);
 
-    const total   = records.length;
-    const present = records.filter((r) => r.attendenceStatus === "P").length;
-    const absent  = records.filter((r) => r.attendenceStatus === "A").length;
-    const leave   = records.filter((r) => r.attendenceStatus === "L").length;
+    const total = summary[0]?.total ?? 0;
+    const present = summary[0]?.present ?? 0;
+    const absent = summary[0]?.absent ?? 0;
+    const leave = summary[0]?.leave ?? 0;
     const percentage = total > 0 ? ((present / total) * 100).toFixed(1) : "0.0";
 
     return { classId, studentId, total, present, absent, leave, percentage, records };
   }
 
  async updateAttendance(attendanceId: string, dto: UpdateAttendenceDto) {
-  const cls = await this.classModel.findById(dto.classId);
+  const [cls, teacher] = await Promise.all([
+    this.classModel.findById(dto.classId).select("assignes classStudents").lean(),
+    this.userModel.exists({ _id: dto.teacherId, role: "proff" }),
+  ]);
   if (!cls) throw new NotFoundException("Class does not exist");
-
-  const teacher = await this.userModel.findOne({ _id: dto.teacherId, role: "proff" });
   if (!teacher) throw new NotFoundException("Teacher does not exist");
 
   const isAssigned = await this.isAssigned(dto.teacherId, dto.classId);
@@ -355,7 +374,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
 
   // ── helpers ───────────────────────────────────────────────
   private async isAssigned(teacherId: string, classId: string): Promise<boolean> {
-    const assignment = await this.classModel.findOne({
+    const assignment = await this.classModel.exists({
       _id: classId,
       "assignes.teacherId": teacherId,
     });
