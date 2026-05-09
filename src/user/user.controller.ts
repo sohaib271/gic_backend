@@ -31,7 +31,7 @@ export class UserController {
   }
 
   @Get('me')
-  getMe(@Req() req:any){
+  getMe(@Req() req: any) {
     return this.userService.getLoggedInUser(req?.user.sub);
   }
 
@@ -57,6 +57,13 @@ export class UserController {
     return this.userService.getUserById(id);
   }
 
+  @Get('student/:studentId/timetable')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'student')
+  getStudentTimetable(@Param('studentId') studentId: string) {
+    return this.userService.getStudentTimetable(studentId);
+  }
+
   @Get('special/:specialId')
   getUserBySpecialId(@Param('specialId') specialId: string) {
     return this.userService.getUserBySpecialId(specialId);
@@ -75,8 +82,8 @@ export class UserController {
 
   @Get('get-schedule/:teacherId')
   @UseGuards(RolesGuard)
-  @Roles("admin","proff")
-    getTeacherSchedule(@Param ('teacherId') teacherId:string){
-      return this.userService.getTeacherSchedule(teacherId);
-    }
+  @Roles('admin', 'proff')
+  getTeacherSchedule(@Param('teacherId') teacherId: string) {
+    return this.userService.getTeacherSchedule(teacherId);
+  }
 }
