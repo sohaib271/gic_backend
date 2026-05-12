@@ -164,10 +164,29 @@ export class UserService {
   ======================= */
   async getAllUsers(role?: string) {
     const filter = role ? { role } : {};
-    const users = await this.userModel.find(filter).lean().populate('department');
+    const u = await this.userModel.find(filter)
+  .lean()
+  .populate({
+    path: 'department',
+    select: '_id category code' // Selects only these three fields
+  });
+
+  const users=u.map(user => this.removeNull(user));
+
 
     return users.map((user) => this.sanitizeUser(user));
   }
+
+  private removeNull(obj){
+    for (const key in obj) {
+    if (obj[key] === null) {
+      delete obj[key];
+    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+      this.removeNull(obj[key]); // Recursively clean sub-objects like 'department'
+    }
+  }
+  return obj;
+};
 
   /* ======================
      GET USER BY ID
