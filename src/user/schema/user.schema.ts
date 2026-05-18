@@ -34,6 +34,9 @@ export class User {
   @Prop({ required: true })
   name!: string;
 
+  @Prop({default:false})
+  struckOff?:boolean;
+
   @Prop({ required: true })
   lastName!: string;
 

@@ -306,7 +306,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
     const [records, summary] = await Promise.all([
       this.attendenceModel.find({ classId, studentId }).lean(),
       this.attendenceModel.aggregate([
-        { $match: { classId: new Types.ObjectId(classId), studentId: new Types.ObjectId(studentId) } },
+        { $match: { classId: classId, studentId:studentId } },
         {
           $group: {
             _id: null,

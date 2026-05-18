@@ -162,8 +162,11 @@ export class UserService {
   /* ======================
      GET ALL USERS
   ======================= */
-  async getAllUsers(role?: string) {
-    const filter = role ? { role } : {};
+  async getAllUsers(role?: string,department?:string) {
+    let filter = {};
+    if(role) filter={role};
+    if(department) filter={department};
+    if(role && department) filter={role,department};
     const u = await this.userModel.find(filter)
   .lean()
   .populate({
