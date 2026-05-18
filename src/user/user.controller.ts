@@ -48,8 +48,10 @@ export class UserController {
   }
 
   @Get()
-  getAllUsers(@Query('role') role?: string) {
-    return this.userService.getAllUsers(role);
+  @UseGuards(RolesGuard)
+  @Roles("admin","proff")
+  getAllUsers(@Query('role') role?: string, @Query('department') department?: string,) {
+    return this.userService.getAllUsers(role,department);
   }
 
   @Get(':id')

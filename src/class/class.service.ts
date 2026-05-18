@@ -1,18 +1,73 @@
 import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Class, ClassDocument } from './schema/class.schema';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { CreateClassDto } from './dto/class.dto';
 import { AssignedTeacherDto } from './dto/assignes.dto';
 import { User, UserDocument } from 'src/user/schema/user.schema';
 import { UpdateClassDto } from './dto/updateClass.dto';
+import { StruckOff, StruckOffDocument } from './schema/struckoff.schema';
 
 @Injectable()
 export class ClassService {
-  constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>){}
+  constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>, @InjectModel(StruckOff.name)private struckOffModel:Model<StruckOffDocument>){}
+
+
+  // ✅ Parse date safely as UTC calendar date
+parseDateToUTCRange(dateStr: string): {
+  dayStart: Date;
+  dayEnd: Date;
+  dayName: string;
+} {
+  const [year, month, day] = dateStr.split('-').map(Number);
+
+  const dayStart = new Date(
+    Date.UTC(year, month - 1, day, 0, 0, 0, 0),
+  );
+
+  const dayEnd = new Date(
+    Date.UTC(year, month - 1, day, 23, 59, 59, 999),
+  );
+
+  const dayNames = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+  ];
+
+  const dayName = dayNames[dayStart.getUTCDay()];
+
+  return { dayStart, dayEnd, dayName };
+}
+
+// ✅ Current time in PKT (UTC+5)
+getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
+  const now = new Date();
+
+  const utcMinutes =
+    now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  const pktOffset = 5 * 60;
+
+  const pktMinutes =
+    (utcMinutes + pktOffset) % (24 * 60);
+
+  const pktNow = new Date(
+    now.getTime() + 5 * 60 * 60 * 1000,
+  );
+
+  return {
+    nowTotal: pktMinutes,
+    pktTodayStr: pktNow.toISOString().split('T')[0],
+  };
+}
 
   async getClasses(category?:string){
-    const filter = category ? { category } : {};
+    let filter = category ? { category } : {};
     const classes=await this.classModel.find(filter).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role -otp -otpExpiry -image -cnic -address -phone -__v -matricMarks"}).populate({
     path: "departmentId", select:"code _id category"
   }).populate({path:"assignes.teacherId",select:"name"});
@@ -241,6 +296,174 @@ async addTeacherSchedule(
     }
   }
 
+  async struckOffStudent(classId: string, studentId: string, actionBy: string, dto: any) {
+  try {
+    this.validateObjectId(classId, 'Invalid class ID');
+    this.validateObjectId(studentId, 'Invalid student ID');
+    this.validateObjectId(actionBy, 'Invalid action user ID');
+
+    if (!dto.reason || !dto.reason.trim()) {
+      throw new BadRequestException('Reason is required');
+    }
+
+    let classObjectId = new Types.ObjectId(classId);
+    let studentObjectId = new Types.ObjectId(studentId);
+
+    // 1. Fetch and validate existing data in parallel
+    let [student, cls, existingRecord] = await Promise.all([
+      this.userModel.exists({ _id: studentObjectId, role: 'student' }),
+      this.classModel.findById(classObjectId, { classStudents: 1 }).lean(),
+      this.struckOffModel.findOne({ studentId: studentObjectId }).lean(),
+    ]);
+
+    // Be tolerant of clients accidentally sending /:studentId/:classId.
+    if (!student || !cls) {
+      const [swappedStudent, swappedClass, swappedRecord] = await Promise.all([
+        this.userModel.exists({ _id: classObjectId, role: 'student' }),
+        this.classModel.findById(studentObjectId, { classStudents: 1 }).lean(),
+        this.struckOffModel.findOne({ studentId: classObjectId }).lean(),
+      ]);
+
+      if (swappedStudent && swappedClass) {
+        [classId, studentId] = [studentId, classId];
+        [classObjectId, studentObjectId] = [studentObjectId, classObjectId];
+        [student, cls, existingRecord] = [swappedStudent, swappedClass, swappedRecord];
+      }
+    }
+
+    if (!student) {
+      throw new UnauthorizedException('Invalid Student');
+    }
+
+    if (!cls) {
+      throw new NotFoundException("Class doesn't exist");
+    }
+
+    if (existingRecord?.currentStatus?.status === 'struck_off') {
+      throw new ConflictException('Student is already struck off');
+    }
+
+    const isEnrolled = cls.classStudents?.some((id) => id.toString() === studentObjectId.toString());
+    if (!isEnrolled) {
+      throw new ConflictException("Student doesn't exist in this class");
+    }
+
+    // 2. Prepare the log data structure
+    const statusLog = {
+      status: 'struck_off',
+      reason: dto.reason.trim(),
+     start: dto.start
+  ? this.parseDateToUTCRange(dto.start).dayStart
+  : new Date(), // Ensures valid date format
+      end: dto.end
+  ? this.parseDateToUTCRange(dto.end).dayEnd
+  : null,
+      actionBy: new Types.ObjectId(actionBy),
+    };
+
+    // 3. Update struck-off status without removing the student from the class
+    const [struckOffRecord] = await Promise.all([
+      this.struckOffModel.findOneAndUpdate(
+        { studentId: studentObjectId },
+        {
+          $set: { currentStatus: statusLog },
+          $push: { history: statusLog },
+          $setOnInsert: { studentId: studentObjectId },
+        },
+        { new: true, upsert: true, runValidators: true },
+      ).populate({ 
+        path: 'studentId', 
+        select: 'name lastName specialId email rollNo class session category department' 
+      }),
+
+      this.userModel.findByIdAndUpdate(
+        studentObjectId,
+        { $set: { struckOff: true } }
+      ),
+    ]);
+
+    return {
+      message: 'Student has been struck off successfully',
+      struckOffRecord,
+    };
+  } catch (error) {
+    if (
+      error instanceof BadRequestException ||
+      error instanceof ConflictException ||
+      error instanceof NotFoundException ||
+      error instanceof UnauthorizedException
+    ) {
+      throw error;
+    }
+
+    if (error?.code === 11000) {
+      throw new ConflictException('Student struck off record already exists');
+    }
+
+    if (error?.name === 'CastError') {
+      throw new BadRequestException('Invalid ID provided');
+    }
+
+    throw new InternalServerErrorException('Unable to struck off student');
+  }
+}
+
+
+  async identifyStruckOffStudent(studentId:string){
+    try {
+      this.validateObjectId(studentId, 'Invalid student ID');
+
+      const student = await this.findStudent(studentId);
+      if (!student) {
+        throw new UnauthorizedException('Invalid Student');
+      }
+
+      const struckOffRecord = await this.struckOffModel
+        .findOne({studentId:student})
+        .lean()
+        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department' })
+        .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' });
+      return {
+        isStruckOff: Boolean(struckOffRecord),
+        struckOffRecord,
+      };
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof UnauthorizedException
+      ) {
+        throw error;
+      }
+
+      if (error?.name === 'CastError') {
+        throw new BadRequestException('Invalid ID provided');
+      }
+
+      throw new InternalServerErrorException('Unable to identify struck off student');
+    }
+  }
+
+  async getStruckOffStudents(){
+    try {
+      const struckOffStudents = await this.struckOffModel
+        .find({ 'currentStatus.status': 'struck_off' })
+        .lean()
+        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department' })
+        .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' });
+
+      return {
+        count: struckOffStudents.length,
+        struckOffStudents,
+      };
+    } catch (error) {
+      if (error?.name === 'CastError') {
+        throw new BadRequestException('Invalid ID provided');
+      }
+
+      throw new InternalServerErrorException('Unable to get struck off students');
+    }
+  }
+
 
   async removeTeacherFromClass(classId:string,teacherId:string){
     const classTeachers=await this.checkTeachers(classId,teacherId);
@@ -324,5 +547,11 @@ async addTeacherSchedule(
   private async findStudent(id:string){
     const student=await this.userModel.exists({_id:id,role:'student'});
     return student?._id ?? null;
+  }
+
+  private validateObjectId(id:string, message:string){
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException(message);
+    }
   }
 }

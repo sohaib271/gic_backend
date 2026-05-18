@@ -7,6 +7,7 @@ import { AssignedTeacherDto, UpdateScheduleDto } from './dto/assignes.dto';
 import { UpdateClassDto } from './dto/updateClass.dto';
 import { RolesGuard } from 'src/others-stuff/guards/roles.guard';
 import { Roles } from 'src/others-stuff/guards/roles.decorator';
+import { StruckOffStudentDto } from './dto/struckoff.dto';
 
 @UseGuards(AuthGuard)
 @Controller('class')
@@ -70,11 +71,23 @@ addTeacherSchedule(
   return this.classservice.addTeacherSchedule(classId, teacherId, dto.schedule);
 }
 
-@UseGuards(RolesGuard)
-@Roles("admin","hod")
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   @Patch("remove-student-from-class/:classId/:studentId")
   removeStudent(@Param('classId') classId:string,@Param('studentId') studentId:string){
     return this.classservice.removeStudentFromClass(classId,studentId);
+  }
+
+  @UseGuards(RolesGuard)
+  @Roles("admin","proff")
+  @Post("struck-off-student/:classId/:studentId")
+  struckOffStudent(
+    @Param('classId') classId:string,
+    @Param('studentId') studentId:string,
+    @Body() dto:StruckOffStudentDto,
+    @Req() req:any,
+  ){
+    return this.classservice.struckOffStudent(classId, studentId, req.user.sub, dto);
   }
 
    @Patch(":id/assignes/:teacherId")
@@ -121,5 +134,19 @@ addTeacherSchedule(
   @Get('get-assigned-teachers/:classId')
   getAssignedTeachers(@Param('classId') classId:string){
     return this.classservice.getAssignedTeacherList(classId);
+  }
+
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod","proff")
+  @Get('struck-off-students')
+  getStruckOffStudents(){
+    return this.classservice.getStruckOffStudents();
+  }
+
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod","proff")
+  @Get('identify-struck-off-student/:studentId')
+  identifyStruckOffStudent(@Param('studentId') studentId:string){
+    return this.classservice.identifyStruckOffStudent(studentId);
   }
 }
