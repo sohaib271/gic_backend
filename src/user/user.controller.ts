@@ -9,6 +9,8 @@ import {
   Query,
   UseGuards,
   Req,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateStudentDto } from './dto/create-user.dto/create-student.dto';
@@ -18,6 +20,8 @@ import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { AdminGuard } from 'src/others-stuff/guards/admin.guard';
 import { RolesGuard } from 'src/others-stuff/guards/roles.guard';
 import { Roles } from 'src/others-stuff/guards/roles.decorator';
+import { FileInterceptor } from '@nestjs/platform-express';
+import multer from 'multer';
 
 @Controller('users')
 @UseGuards(AuthGuard) // All routes require authentication
@@ -53,6 +57,20 @@ export class UserController {
   getAllUsers(@Query('role') role?: string, @Query('department') department?: string,) {
     return this.userService.getAllUsers(role,department);
   }
+
+  @Post('students/bulk-upload')
+@UseGuards(RolesGuard)
+@Roles("admin","hod")
+@UseInterceptors(
+  FileInterceptor('file', {
+    storage: multer.memoryStorage(),
+  }),
+)
+bulkUploadStudents(
+  @UploadedFile() file: Express.Multer.File,
+) {
+  return this.userService.bulkUploadStudents(file);
+}
 
   @Get(':id')
   getUserById(@Param('id') id: string) {
