@@ -28,6 +28,7 @@
     "dayjs": "^1.11.20",
     "dotenv": "^17.2.3",
     "mongoose": "^9.1.2",
+    "multer": "^2.1.1",
     "nodemailer": "^8.0.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -36,7 +37,8 @@
     "swagger-ui-express": "^5.0.1",
     "timezone": "^1.0.23",
     "utc": "^0.1.0",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -47,6 +49,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
+    "@types/multer": "^2.1.0",
     "@types/node": "^22.10.7",
     "@types/nodemailer": "^7.0.11",
     "@types/passport-jwt": "^4.0.1",

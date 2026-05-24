@@ -7,6 +7,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import * as XLSX from 'xlsx';
 import bcrypt from 'bcrypt';
 import { Model } from 'mongoose';
 import { User, UserDocument } from './schema/user.schema';
@@ -33,6 +34,55 @@ export class UserService {
   /* ======================
      CREATE STUDENT
   ======================= */
+
+
+  async bulkUploadStudents(file: Express.Multer.File) {
+  const workbook = XLSX.read(file.buffer, {
+    type: 'buffer',
+  });
+
+  const sheetName = workbook.SheetNames[0];
+
+  const worksheet = workbook.Sheets[sheetName];
+  console.log(worksheet)
+
+  const rows = XLSX.utils.sheet_to_json(worksheet);
+
+  const success: {
+  row: number;
+  student: any;
+}[] = [];
+
+const failed: {
+  row: number;
+  error: string;
+}[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    try {
+      const dto = rows[i] as CreateStudentDto;
+
+      const result = await this.createStudent(dto);
+
+      success.push({
+        row: i + 2,
+        student: result.user,
+      });
+    } catch (error) {
+      failed.push({
+        row: i + 2,
+        error: error.message,
+      });
+    }
+  }
+
+  return {
+    totalRows: rows.length,
+    successful: success.length,
+    failed: failed.length,
+    errors: failed,
+  };
+}
   async createStudent(dto: CreateStudentDto) {
     try {
       await this.checkDuplicates(dto.cnic);
@@ -46,14 +96,12 @@ export class UserService {
         verifyToken,
         isQrScanned: false,
       });
-
       const department=await this.departmentModel.findById(student.department).select("code").lean();
       if(!department){
         throw new BadRequestException("Department not found");
       }
       student.specialId = `STU-${department.code}-${student.cnic.slice(-4)}`;
       await student.save();
-
       return {
         message: 'Student created successfully',
         user: this.sanitizeUser(student),
