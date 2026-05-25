@@ -11,8 +11,8 @@ export class StatusLog {
   @Prop({ required: true })
   reason!: string;
 
-  @Prop({ required: true, default: Date.now }) // Use function reference instead of executed Date.now()
-  start!: Date;
+  @Prop({ required: true, default: null }) // Use function reference instead of executed Date.now()
+  start?: Date;
 
   @Prop({ type: Date, default: null }) // Use null instead of empty string for proper Date typing
   end?: Date | null;
