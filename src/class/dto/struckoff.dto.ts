@@ -1,4 +1,4 @@
-import { IsDateString, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsDateString,isString,IsMongoId,MinLength, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class StruckOffStudentDto {
   @IsString()
@@ -12,4 +12,13 @@ export class StruckOffStudentDto {
   @IsOptional()
   @IsDateString()
   end?:string
+}
+
+// dto/unstruck-off.dto.ts
+
+export class UnStruckOffStudentDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Reason is required' })
+  @MinLength(5, { message: 'Reason must be at least 5 characters' })
+  reason!: string;
 }

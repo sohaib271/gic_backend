@@ -443,6 +443,89 @@ async addTeacherSchedule(
     }
   }
 
+  async unStruckOffStudent(studentId: string, actionBy: string, reason: string) {
+  try {
+    this.validateObjectId(studentId, 'Invalid student ID');
+    this.validateObjectId(actionBy,  'Invalid action user ID');
+
+    if (!reason?.trim()) {
+      throw new BadRequestException('Reason is required for reinstating a student');
+    }
+
+    const studentObjectId = new Types.ObjectId(studentId);
+    const actionByObjectId = new Types.ObjectId(actionBy);
+
+    // ✅ Fetch student and existing struck off record in parallel
+    const [student, existingRecord] = await Promise.all([
+      this.userModel.exists({ _id: studentObjectId, role: 'student' }),
+      this.struckOffModel.findOne({ studentId: studentObjectId }).lean(),
+    ]);
+
+    if (!student) {
+      throw new UnauthorizedException('Invalid Student');
+    }
+
+    if (!existingRecord) {
+      throw new NotFoundException('No struck off record found for this student');
+    }
+
+    if (existingRecord.currentStatus?.status !== 'struck_off') {
+      throw new ConflictException('Student is not currently struck off');
+    }
+
+    const now = new Date();
+
+    // ✅ Reinstatement log — record the end date on history entry and clear currentStatus
+    const reinstateLog = {
+      status:   'reinstated',
+      reason:   reason.trim(),
+      start:    null,  // ✅ cleared
+      end:      null,  // ✅ cleared
+      actionBy: actionByObjectId,
+    };
+
+    const [updatedRecord] = await Promise.all([
+      this.struckOffModel.findOneAndUpdate(
+        { studentId: studentObjectId },
+        {
+          $set:  { currentStatus: null },
+          $push: { history: reinstateLog },
+        },
+        { new: true },
+      ).populate({
+        path:   'studentId',
+        select: 'name lastName specialId email rollNo class session category department',
+      }),
+
+      this.userModel.findByIdAndUpdate(
+        studentObjectId,
+        { $set: { struckOff: false } },
+      ),
+    ]);
+
+    return {
+      message:       'Student has been reinstated successfully',
+      updatedRecord,
+    };
+
+  } catch (error) {
+    if (
+      error instanceof BadRequestException  ||
+      error instanceof ConflictException    ||
+      error instanceof NotFoundException    ||
+      error instanceof UnauthorizedException
+    ) {
+      throw error;
+    }
+
+    if (error?.name === 'CastError') {
+      throw new BadRequestException('Invalid ID provided');
+    }
+
+    throw new InternalServerErrorException('Unable to reinstate student');
+  }
+}
+
   async getStruckOffStudents(){
     try {
       const struckOffStudents = await this.struckOffModel
