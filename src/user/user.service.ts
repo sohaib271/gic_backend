@@ -34,9 +34,7 @@ export class UserService {
   /* ======================
      CREATE STUDENT
   ======================= */
-
-
-  async bulkUploadStudents(file: Express.Multer.File) {
+async bulkUploadStudents(file: Express.Multer.File) {
   const workbook = XLSX.read(file.buffer, {
     type: 'buffer',
   });
@@ -44,8 +42,6 @@ export class UserService {
   const sheetName = workbook.SheetNames[0];
 
   const worksheet = workbook.Sheets[sheetName];
-  console.log(worksheet)
-
   const rows = XLSX.utils.sheet_to_json(worksheet);
 
   const success: {
