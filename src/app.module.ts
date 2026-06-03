@@ -6,6 +6,7 @@ import { DepartmentModule } from './department/department.module';
 import { AuthModule } from './auth/auth.module';
 import { ClassModule } from './class/class.module';
 import { AttendenceModule } from './attendence/attendence.module';
+import { TeacherModule } from './teacher/teacher.module';
 import * as dns from "dns"
 dns.setServers(["1.1.1.1","8.8.8.8"]);
 
@@ -24,6 +25,7 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
     AuthModule,
     ClassModule,
     AttendenceModule,
+    TeacherModule,
   ],
   controllers: [],
   providers: [],
