@@ -40,5 +40,4 @@ export class StruckOff {
 }
 
 export const StruckOffSchema = SchemaFactory.createForClass(StruckOff);
-StruckOffSchema.index({ studentId: 1 });
 StruckOffSchema.index({ 'currentStatus.status': 1 });
