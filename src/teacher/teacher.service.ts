@@ -1,17 +1,95 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-
+import { Model, Types } from 'mongoose';
+import * as QRCode from 'qrcode';
 import { Class, ClassDocument } from 'src/class/schema/class.schema';
 import { User, UserDocument } from 'src/user/schema/user.schema';
+import { TeacherAttendanceDto } from './dto/teacherAttendanceDto';
+import { TeacherAttendance, TeacherAttendanceDocument } from './schema/teacherAttendance';
 
 @Injectable()
 export class TeacherService {
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectModel(Class.name) private readonly classModel: Model<ClassDocument>,
+    @InjectModel(TeacherAttendance.name) private readonly teacherAttendanceModel: Model<TeacherAttendanceDocument>,
   ) {}
 
+  async markTeacherAttendance(dto:TeacherAttendanceDto,teacherId:string) {
+    const teacher = await this.userModel.findOne({ _id: teacherId, role: 'proff' }).lean();
+
+    if (!teacher) {
+      throw new NotFoundException('Teacher not found');
+    }
+    const newAttendance = new this.teacherAttendanceModel({...dto,teacherId:teacherId});
+    await newAttendance.save();
+    return {
+      success: true,
+      message: 'Attendance marked successfully',
+      newAttendance
+    };
+  }
+
+  async generateTeacherQR(teacherId: string) {
+  if (!Types.ObjectId.isValid(teacherId)) {
+    throw new BadRequestException('Invalid teacher ID');
+  }
+
+  const teacher = await this.userModel
+    .findOne({ _id: teacherId, role: 'proff' })
+    .select('name lastName specialId')
+    .lean();
+
+  if (!teacher) throw new NotFoundException('Teacher not found');
+
+  // ✅ QR encodes a signed payload with teacherId + timestamp
+  const payload = JSON.stringify({
+    teacherId,
+    specialId: (teacher as any).specialId,
+    name:      `${(teacher as any).name} ${(teacher as any).lastName ?? ''}`.trim(),
+    exp:       Date.now() + 5 * 60 * 1000, // expires in 5 minutes
+  });
+
+  const qrDataUrl = await QRCode.toDataURL(payload, {
+    width:           300,
+    margin:          2,
+    color:           { dark: '#000000', light: '#ffffff' },
+    errorCorrectionLevel: 'H',
+  });
+
+  return { success: true, qrDataUrl, teacherId, expiresIn: '5 minutes' };
+}
+
+  async getRecord(){
+    const records = await this.teacherAttendanceModel.find().populate({path:'teacherId',select:'name lastName'}).lean();
+
+    if(!records || records.length === 0){
+      throw new NotFoundException('No attendance records found');
+    }
+
+    return {
+      success: true,
+      records
+    }
+  }
+
+  async getTeacherAttendance(teacherId: string) {
+    const teacher = await this.userModel.findOne({ _id: teacherId, role: 'proff' }).lean();
+
+    if (!teacher) {
+      throw new NotFoundException('Teacher not found');
+    }
+    const attendanceRecords = await this.teacherAttendanceModel.find({ teacherId }).populate({path:"teacherId",select:'name lastName'}).lean();
+
+    if(!attendanceRecords || attendanceRecords.length === 0){
+      throw new NotFoundException('No attendance records found for this teacher');
+    }
+
+    return {
+      success: true,
+      attendanceRecords
+    };
+  }
   async getMyAssignedStudents(teacherId: string) {
     const teacher = await this.userModel
       .findOne({ _id: teacherId, role: 'proff' })
