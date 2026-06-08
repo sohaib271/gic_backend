@@ -32,6 +32,13 @@ export class TeacherController {
   getRecords() {
     return this.teacherService.getRecord();
   }
+  // teacher.controller.ts
+@Get('today-status')
+@UseGuards(RolesGuard)
+@Roles('proff')
+getTodayStatus(@Req() req: any) {
+  return this.teacherService.getTodayAttendanceStatus(req?.user?.sub);
+}
 
   // teacher.controller.ts — add
 @Get('qr/:teacherId')
