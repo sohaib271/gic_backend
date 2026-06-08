@@ -55,10 +55,17 @@ generateQR() {
 //   return this.teacherService.generateTeacherQR(teacherId);
 // }
 
-  @Get('attendance/:id')
+  @Get('attendance')
   @UseGuards(RolesGuard)
   @Roles('proff')
-  getTeacherAttendance(@Param('id') teacherId: string) {
-    return this.teacherService.getMyAssignedStudents(teacherId);
+  getMyAttendance(@Req() req: any) {
+    return this.teacherService.getMyAttendance(req?.user?.sub);
+  }
+
+  @Get('attendance/:teacherId')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'proff')
+  getTeacherAttendance(@Param('teacherId') teacherId: string) {
+    return this.teacherService.getTeacherAttendance(teacherId);
   }
 }
