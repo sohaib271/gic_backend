@@ -185,6 +185,24 @@ async generateSharedQR() {
       attendanceRecords
     };
   }
+
+  async getMyAttendance(teacherId: string) {
+    const teacher = await this.userModel.findOne({ _id: teacherId, role: 'proff' }).lean();
+
+    if (!teacher) {
+      throw new NotFoundException('Teacher not found');
+    }
+    const attendanceRecords = await this.teacherAttendanceModel.find({ teacherId }).populate({path:"teacherId",select:'name lastName'}).lean();
+
+    if(!attendanceRecords || attendanceRecords.length === 0){
+      throw new NotFoundException('No attendance record exist');
+    }
+
+    return {
+      success: true,
+      attendanceRecords
+    };
+  }
   async getMyAssignedStudents(teacherId: string) {
     const teacher = await this.userModel
       .findOne({ _id: teacherId, role: 'proff' })

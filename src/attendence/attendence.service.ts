@@ -115,10 +115,14 @@ getNowInPKT():{ nowTotal: number } {
   const [endH,   endM]   = scheduledSlot.endTime.split(":").map(Number);
   const startTotal = startH * 60 + startM;
   const endTotal   = endH   * 60 + endM;
+  const endTotalBuffered = endTotal + 30; 
 
-  if (nowTotal < startTotal || nowTotal > endTotal) {
+  if (nowTotal < startTotal || nowTotal > endTotalBuffered) {
+    const bufferEndH = Math.floor(endTotalBuffered / 60) % 24;
+  const bufferEndM = endTotalBuffered % 60;
+  const bufferEndStr = `${String(bufferEndH).padStart(2, "0")}:${String(bufferEndM).padStart(2, "0")}`;
     throw new ForbiddenException(
-      `Attendance can only be marked during: ${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
+      `Attendance can only be marked during: ${scheduledSlot.startTime} – ${bufferEndStr}`
     );
   }
 
@@ -238,10 +242,14 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
     const [endH, endM] = scheduledSlot.endTime.split(':').map(Number);
     const startTotal = startH * 60 + startM;
     const endTotal = endH * 60 + endM;
+    const endTotalBuffered = endTotal + 30; 
 
-    if (nowTotal < startTotal || nowTotal > endTotal) {
+    if (nowTotal < startTotal || nowTotal > endTotalBuffered) {
+      const bufferEndH = Math.floor(endTotalBuffered / 60) % 24;
+  const bufferEndM = endTotalBuffered % 60;
+  const bufferEndStr = `${String(bufferEndH).padStart(2, "0")}:${String(bufferEndM).padStart(2, "0")}`;
       throw new ForbiddenException(
-        `Attendance can only be marked during lecture hours: ${scheduledSlot.startTime} – ${scheduledSlot.endTime}`,
+        `Attendance can only be marked during lecture hours: ${scheduledSlot.startTime} – ${bufferEndStr}`,
       );
     }
 
@@ -444,10 +452,14 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
   const [endH,   endM]   = scheduledSlot.endTime.split(":").map(Number);
   const startTotal = startH * 60 + startM;
   const endTotal   = endH   * 60 + endM;
+  const endTotalBuffered = endTotal + 30; 
 
-  if (nowTotal < startTotal || nowTotal > endTotal) {
+  if (nowTotal < startTotal || nowTotal > endTotalBuffered) {
+    const bufferEndH = Math.floor(endTotalBuffered / 60) % 24;
+  const bufferEndM = endTotalBuffered % 60;
+  const bufferEndStr = `${String(bufferEndH).padStart(2, "0")}:${String(bufferEndM).padStart(2, "0")}`;
     throw new ForbiddenException(
-      `Attendance can only be updated during: ${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
+      `Attendance can only be updated during: ${scheduledSlot.startTime} – ${bufferEndStr}`
     );
   }
 
