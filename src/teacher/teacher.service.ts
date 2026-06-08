@@ -139,6 +139,22 @@ async getTodayAttendanceStatus(teacherId: string) {
   return { success: true, qrDataUrl, teacherId, expiresIn: '5 minutes' };
 }
 
+async generateSharedQR() {
+  const payload = JSON.stringify({
+    type: "faculty-attendance",
+    exp:  Date.now() + 5 * 60 * 1000, // expires in 5 minutes
+  });
+ 
+  const qrDataUrl = await QRCode.toDataURL(payload, {
+    width:                300,
+    margin:               2,
+    color:                { dark: '#000000', light: '#ffffff' },
+    errorCorrectionLevel: 'H',
+  });
+ 
+  return { success: true, qrDataUrl, expiresIn: '5 minutes' };
+}
+
   async getRecord(){
     const records = await this.teacherAttendanceModel.find().populate({path:'teacherId',select:'name lastName'}).lean();
 
