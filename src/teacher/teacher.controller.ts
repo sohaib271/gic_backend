@@ -40,13 +40,20 @@ getTodayStatus(@Req() req: any) {
   return this.teacherService.getTodayAttendanceStatus(req?.user?.sub);
 }
 
-  // teacher.controller.ts — add
-@Get('qr/:teacherId')
+@Get('qr')
 @UseGuards(RolesGuard)
 @Roles('admin', 'proff')
-generateQR(@Param('teacherId') teacherId: string) {
-  return this.teacherService.generateTeacherQR(teacherId);
+generateQR() {
+  return this.teacherService.generateSharedQR();
 }
+
+  // teacher.controller.ts — add
+// @Get('qr/:teacherId')
+// @UseGuards(RolesGuard)
+// @Roles('admin', 'proff')
+// generateQR(@Param('teacherId') teacherId: string) {
+//   return this.teacherService.generateTeacherQR(teacherId);
+// }
 
   @Get('attendance/:id')
   @UseGuards(RolesGuard)
