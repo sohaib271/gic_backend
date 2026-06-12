@@ -32,19 +32,40 @@ export class TeacherController {
   getRecords() {
     return this.teacherService.getRecord();
   }
-
-  // teacher.controller.ts — add
-@Get('qr/:teacherId')
+  // teacher.controller.ts
+@Get('today-status')
 @UseGuards(RolesGuard)
-@Roles('admin', 'proff')
-generateQR(@Param('teacherId') teacherId: string) {
-  return this.teacherService.generateTeacherQR(teacherId);
+@Roles('proff')
+getTodayStatus(@Req() req: any) {
+  return this.teacherService.getTodayAttendanceStatus(req?.user?.sub);
 }
 
-  @Get('attendance/:id')
+@Get('qr')
+@UseGuards(RolesGuard)
+@Roles('admin', 'proff')
+generateQR() {
+  return this.teacherService.generateSharedQR();
+}
+
+  // teacher.controller.ts — add
+// @Get('qr/:teacherId')
+// @UseGuards(RolesGuard)
+// @Roles('admin', 'proff')
+// generateQR(@Param('teacherId') teacherId: string) {
+//   return this.teacherService.generateTeacherQR(teacherId);
+// }
+
+  @Get('attendance')
   @UseGuards(RolesGuard)
   @Roles('proff')
-  getTeacherAttendance(@Param('id') teacherId: string) {
-    return this.teacherService.getMyAssignedStudents(teacherId);
+  getMyAttendance(@Req() req: any) {
+    return this.teacherService.getMyAttendance(req?.user?.sub);
+  }
+
+  @Get('attendance/:teacherId')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'proff')
+  getTeacherAttendance(@Param('teacherId') teacherId: string) {
+    return this.teacherService.getTeacherAttendance(teacherId);
   }
 }
