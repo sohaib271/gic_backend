@@ -24,8 +24,7 @@ export class CreateClassDto {
   @IsIn(['I', 'II'], { message: 'Class must be I or II for intermediate' })
   class!: string;
 
-  // ✅ Always "intermediate" — set in service, not sent from frontend
-  category?: string;
+  category!: string; // e.g intermediate,bs,adp
 
   @IsArray()
   @ValidateNested({ each: true })
