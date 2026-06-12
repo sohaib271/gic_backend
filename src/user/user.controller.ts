@@ -29,7 +29,8 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Post('student')
-  @UseGuards(AdminGuard) // Only admin
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod")
   createStudent(@Body() dto: CreateStudentDto) {
     return this.userService.createStudent(dto);
   }
@@ -40,7 +41,8 @@ export class UserController {
   }
 
   @Post('professor')
-  @UseGuards(AdminGuard) // Only admin
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod") 
   createProfessor(@Body() dto: CreateProfessorDto) {
     return this.userService.createProfessor(dto);
   }

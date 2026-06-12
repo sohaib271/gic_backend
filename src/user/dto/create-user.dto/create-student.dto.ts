@@ -22,9 +22,12 @@ export class CreateStudentDto extends CreateBaseUserDto {
   subjects?: string[];
 
   @IsNotEmpty({message:"Roll No is required"})
-  @IsString()
+  @IsNumber()
   rollNo!: number;
 
+  @IsOptional()
+  @IsString()
+  shift?: string;
 
   @IsString()
   @IsNotEmpty({message:"Matric marks are required"})
