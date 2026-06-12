@@ -66,12 +66,15 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
   };
 }
 
-  async getClasses(category?:string){
-    let filter = category ? { category } : {};
+  async getClasses(category?:string,department?:string){
+    let filter ={};
+    if(category) filter={category};
+    if(department) filter={departmentId:department};
+    if(category && department) filter={category,departmentId:department}
     const classes=await this.classModel.find(filter).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role -otp -otpExpiry -image -cnic -address -phone -__v -matricMarks"}).populate({
     path: "departmentId", select:"code _id category"
   }).populate({path:"assignes.teacherId",select:"name"});
-    if(classes.length==0){
+    if(classes.length===0){
       return "No Class created";
     }
 
