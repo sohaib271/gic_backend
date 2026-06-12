@@ -18,7 +18,7 @@ export class ScheduleDto {
 
 export class AssignedTeacherDto {
   @IsMongoId({ message: 'Invalid teacher ID' })
-  teacherId: string;
+  teacherId!: string;
 
   @IsOptional()
   @IsString()
