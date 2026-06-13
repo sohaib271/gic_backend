@@ -1,6 +1,13 @@
-import { Type } from "class-transformer";
-import { IsDate, IsMongoId, IsNotEmpty, IsString, ValidateNested } from "class-validator";
-import { Types } from "mongoose";
+import { Type } from 'class-transformer';
+import {
+  IsDate,
+  IsMongoId,
+  IsNotEmpty,
+  IsString,
+  ValidateNested,
+  IsOptional,
+} from 'class-validator';
+import { Types } from 'mongoose';
 
 export class LocationDto {
   @IsNotEmpty({ message: 'Longitude is required' })
@@ -8,11 +15,9 @@ export class LocationDto {
 
   @IsNotEmpty({ message: 'Latitude is required' })
   latitude!: number;
-
 }
 
 export class TeacherAttendanceDto {
-
   @IsNotEmpty({ message: 'Type is required' })
   @IsString()
   type!: string;
@@ -26,4 +31,15 @@ export class TeacherAttendanceDto {
   @IsNotEmpty()
   gps!: LocationDto;
 
+  @IsOptional()
+  @IsString()
+  macAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  qrPayload?: string;
+
+  @IsOptional()
+  @IsString()
+  qrSignature?: string;
 }

@@ -33,6 +33,10 @@ export class CreateStudentDto extends CreateBaseUserDto {
   @IsNotEmpty({message:"Matric marks are required"})
   matricMarks!: number;
 
+  @IsString()
+  @IsNotEmpty({message:"Inter marks are required"})
+  interMarks!: number;
+
   @IsOptional()
   @IsString()
   whatsappNumber?: string;
