@@ -22,6 +22,9 @@ export class User {
   @Prop({default:null})
   city?:string;
 
+  @Prop()
+  interMarks?:number;
+
   @Prop({default:true})
   isActive?:boolean;
 
