@@ -374,46 +374,34 @@ async getTeacherSchedule(teacherId: string) {
   /* ======================
      UPDATE USER
   ======================= */
-  async updateUser(id: string, updateData: any) {
-    const user = await this.userModel.findById(id);
+  // user.service.ts — updateUser, add this check
+async updateUser(id: string, updateData: any) {
+  const user = await this.userModel.findById(id);
+  if (!user) throw new NotFoundException('User not found');
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    // Check if updating specialId or cnic
-    if (updateData.specialId && updateData.specialId !== user.specialId) {
-      const existingUser = await this.userModel.exists({
-        specialId: updateData.specialId,
-      });
-      if (existingUser) {
-        throw new ConflictException('Special ID already exists');
-      }
-    }
-
-    if (updateData.cnic && updateData.cnic !== user.cnic) {
-      const existingUser = await this.userModel.exists({
-        cnic: updateData.cnic,
-      });
-      if (existingUser) {
-        throw new ConflictException('CNIC already exists');
-      }
-    }
-
-    // Don't allow updating password, verifyToken, or isQrScanned through this endpoint
-    delete updateData.password;
-    delete updateData.verifyToken;
-    delete updateData.isQrScanned;
-    delete updateData.role; // Don't allow role change
-
-    Object.assign(user, updateData);
-    await user.save();
-
-    return {
-      message: 'User updated successfully',
-      user: this.sanitizeUser(user),
-    };
+  if (updateData.specialId && updateData.specialId !== user.specialId) {
+    const existingUser = await this.userModel.exists({ specialId: updateData.specialId });
+    if (existingUser) throw new ConflictException('Special ID already exists');
   }
+
+  if (updateData.cnic && updateData.cnic !== user.cnic) {
+    const existingUser = await this.userModel.exists({ cnic: updateData.cnic });
+    if (existingUser) throw new ConflictException('CNIC already exists');
+  }
+
+  // ✅ Don't allow updating these through this endpoint
+  delete updateData.password;
+  delete updateData.verifyToken;
+  delete updateData.isQrScanned;
+  delete updateData.role;
+  delete updateData.email;     // ✅ email is locked, frontend won't send it but enforce here too
+  delete updateData.specialId; // ✅ system-generated, never editable
+
+  Object.assign(user, updateData);
+  await user.save();
+
+  return { message: 'User updated successfully', user: this.sanitizeUser(user) };
+}
 
   /* ======================
      DELETE USER

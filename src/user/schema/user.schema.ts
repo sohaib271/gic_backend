@@ -22,6 +22,9 @@ export class User {
   @Prop({default:null})
   city?:string;
 
+  @Prop()
+  interMarks?:number;
+
   @Prop({default:true})
   isActive?:boolean;
 
@@ -33,6 +36,9 @@ export class User {
 
   @Prop({ required: true })
   name!: string;
+
+  @Prop({default:"Morning",enum:["Morning","Evening"]})
+  shift?:string;
 
   @Prop({default:false})
   struckOff?:boolean;
