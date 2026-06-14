@@ -38,8 +38,8 @@ export class ClassController {
   @UseGuards(RolesGuard)
   @Roles("admin","hod")
   @Get('all')
-  getClasses(@Query('category') category?: string){
-    return this.classservice.getClasses(category);
+  getClasses(@Query('category') category?: string,@Query('department') department?:string){
+    return this.classservice.getClasses(category,department);
   }
 @Patch(':id/assignes/:teacherId/schedule')
 @UseGuards(RolesGuard)
@@ -155,7 +155,7 @@ addTeacherSchedule(
  }
 
   @UseGuards(RolesGuard)
-  @Roles("admin","hod","proff")
+  @Roles("admin","proff")
   @Get('identify-struck-off-student/:studentId')
   identifyStruckOffStudent(@Param('studentId') studentId:string){
     return this.classservice.identifyStruckOffStudent(studentId);
