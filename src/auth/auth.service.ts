@@ -21,12 +21,7 @@ export class AuthService {
      ADMIN LOGIN
   ======================= */
   async adminLogin(email: string, password: string) {
-<<<<<<< HEAD
     const admin = await this.userModel.findOne({ email, role: 'admin' })
-=======
-    const admin = await this.userModel.findOne({ email, role: 'admin' }).select('password role verifyToken');
-
->>>>>>> 8250098b54f529bc0c855a6f020e713a1c169ba4
     if (!admin || !admin.password) {
       throw new UnauthorizedException('Invalid credentials');
     }
