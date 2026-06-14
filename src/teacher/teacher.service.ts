@@ -126,7 +126,7 @@ async getTodayAttendanceStatus(teacherId: string) {
     teacherId,
     specialId: (teacher as any).specialId,
     name:      `${(teacher as any).name} ${(teacher as any).lastName ?? ''}`.trim(),
-    exp:       Date.now() + 5 * 60 * 1000, // expires in 5 minutes
+    exp:       Date.now() + 1 * 60 * 1000, // expires in 1 minute
   });
 
   const qrDataUrl = await QRCode.toDataURL(payload, {
@@ -136,13 +136,13 @@ async getTodayAttendanceStatus(teacherId: string) {
     errorCorrectionLevel: 'H',
   });
 
-  return { success: true, qrDataUrl, teacherId, expiresIn: '5 minutes' };
+  return { success: true, qrDataUrl, teacherId, expiresIn: '1 minute' };
 }
 
 async generateSharedQR() {
   const payload = JSON.stringify({
     type: "faculty-attendance",
-    exp:  Date.now() + 5 * 60 * 1000, // expires in 5 minutes
+    exp:  Date.now() + 1 * 60 * 1000, // expires in 1 minute
   });
  
   const qrDataUrl = await QRCode.toDataURL(payload, {
@@ -152,7 +152,7 @@ async generateSharedQR() {
     errorCorrectionLevel: 'H',
   });
  
-  return { success: true, qrDataUrl, expiresIn: '5 minutes' };
+  return { success: true, qrDataUrl, expiresIn: '1 minute' };
 }
 
   async getRecord(){
