@@ -64,7 +64,7 @@ generateQR() {
 
   @Get('attendance/:teacherId')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'proff')
+  @Roles('admin', 'hod')
   getTeacherAttendance(@Param('teacherId') teacherId: string) {
     return this.teacherService.getTeacherAttendance(teacherId);
   }
