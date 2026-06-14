@@ -22,7 +22,7 @@ export class AuthGuard implements CanActivate {
       if(!user){
         throw new UnauthorizedException("Session expired. Login again");
       }
-      const dbToken=await this.userModel.findById({_id:user.sub},{verifyToken:1,_id:0});
+      const dbToken=await this.userModel.findById(user.sub,{verifyToken:1,_id:0});
 
       if(!dbToken?.verifyToken || (token!==dbToken?.verifyToken)){
           throw new UnauthorizedException("Couldn't verify user. Login again")
