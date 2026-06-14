@@ -93,15 +93,6 @@ export class TeacherService {
       .lean();
     if (!teacher) throw new NotFoundException('Teacher not found');
 
-<<<<<<< HEAD
-  // ✅ QR encodes a signed payload with teacherId + timestamp
-  const payload = JSON.stringify({
-    teacherId,
-    specialId: (teacher as any).specialId,
-    name:      `${(teacher as any).name} ${(teacher as any).lastName ?? ''}`.trim(),
-    exp:       Date.now() + 1 * 60 * 1000, // expires in 1 minute
-  });
-=======
     // ✅ Validate QR signature if provided
     if (dto.qrPayload && dto.qrSignature) {
       try {
@@ -122,7 +113,6 @@ export class TeacherService {
         throw new BadRequestException('Invalid QR code format.');
       }
     }
->>>>>>> 8250098b54f529bc0c855a6f020e713a1c169ba4
 
     // ✅ Compare by day range, not exact timestamp
     const date = dto.currentDate ? new Date(dto.currentDate) : new Date();
@@ -149,26 +139,6 @@ export class TeacherService {
       ),
     );
 
-<<<<<<< HEAD
-  return { success: true, qrDataUrl, teacherId, expiresIn: '1 minute' };
-}
-
-async generateSharedQR() {
-  const payload = JSON.stringify({
-    type: "faculty-attendance",
-    exp:  Date.now() + 1 * 60 * 1000, // expires in 1 minute
-  });
- 
-  const qrDataUrl = await QRCode.toDataURL(payload, {
-    width:                300,
-    margin:               2,
-    color:                { dark: '#000000', light: '#ffffff' },
-    errorCorrectionLevel: 'H',
-  });
- 
-  return { success: true, qrDataUrl, expiresIn: '1 minute' };
-}
-=======
     const lastAttendance = await this.teacherAttendanceModel
       .findOne({
         teacherId,
@@ -182,7 +152,6 @@ async generateSharedQR() {
         `You have already marked ${dto.type} for today`,
       );
     }
->>>>>>> 8250098b54f529bc0c855a6f020e713a1c169ba4
 
     // ✅ Also enforce check-in before check-out
     if (dto.type === 'check-out') {
