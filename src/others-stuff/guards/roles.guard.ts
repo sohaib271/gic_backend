@@ -21,24 +21,16 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
     
-    // First check: if user has the exact role from JWT token
-    if (requiredRoles.includes(user.role)) {
+    // Check if user is admin
+    if (user.role === 'admin') {
       return true;
     }
     
-    // Second check: for HOD role, check database (handles "proff" with isHod=true)
+    // For 'hod' required role: check if user has isHod=true in database
     if (requiredRoles.includes('hod')) {
-      const findU = await this.userModel.findById(user.sub).select("_id department isHod role").lean();
-      if (findU?.isHod === true) {
-        const req = context.switchToHttp().getRequest();
-        const targetDept = req.query.department;
-        
-        // If department query param is provided, validate it matches
-        if (targetDept) {
-          return findU?.department?.toString() === targetDept.toString();
-        }
-        
-        // No department param = allow (HOD can create announcements)
+      const dbUser = await this.userModel.findById(user.sub).select("_id isHod").lean();
+      
+      if (dbUser?.isHod === true) {
         return true;
       }
     }
