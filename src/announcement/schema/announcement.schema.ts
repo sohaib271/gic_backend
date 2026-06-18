@@ -7,6 +7,7 @@ export type AnnouncementDocument = Announcement & Document;
 export enum CreatorRole {
   ADMIN = 'admin',
   HOD = 'hod',
+  PROFF = 'proff',
 }
 
 @Schema({ timestamps: true })
