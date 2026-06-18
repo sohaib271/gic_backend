@@ -20,16 +20,18 @@ export class RolesGuard implements CanActivate {
     }
 
     const { user } = context.switchToHttp().getRequest();
-    const findU = await this.userModel.findById(user.sub).select("_id department isHod role").lean();
-    const req = context.switchToHttp().getRequest();
-    const targetDept = req.query.department;
-
-    return requiredRoles.some((role) => {
-      if (role === "hod") {
-        // For HOD: if department is specified in query, check it matches
-        // If no department specified, just check user is HOD
-        const isHod = findU?.isHod === true;
-        if (!isHod) return false;
+    
+    // First check: if user has the exact role from JWT token
+    if (requiredRoles.includes(user.role)) {
+      return true;
+    }
+    
+    // Second check: for HOD role, check database (handles "proff" with isHod=true)
+    if (requiredRoles.includes('hod')) {
+      const findU = await this.userModel.findById(user.sub).select("_id department isHod role").lean();
+      if (findU?.isHod === true) {
+        const req = context.switchToHttp().getRequest();
+        const targetDept = req.query.department;
         
         // If department query param is provided, validate it matches
         if (targetDept) {
@@ -39,7 +41,8 @@ export class RolesGuard implements CanActivate {
         // No department param = allow (HOD can create announcements)
         return true;
       }
-      return user.role === role;
-    });
+    }
+    
+    return false;
   }
 }
