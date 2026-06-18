@@ -53,9 +53,22 @@ export class AnnouncementService {
         const dept = (user as any).department;
         const deptCode = dept?.code || '';
         const category = user.category || '';
-        const session = user.session || '';
+        const sessionStr = user.session || '';
         const userClass = user.class || '';
-        const userClassName = `${category}-${deptCode}-${session}-${userClass}`;
+        
+        // Convert session "2024-2028" to "2428" format
+        // Handle various session formats
+        let sessionCode = sessionStr;
+        const sessionMatch = sessionStr.match(/(\d{4})-(\d{4})/);
+        if (sessionMatch) {
+          const startYear = sessionMatch[1];
+          const endYear = sessionMatch[2];
+          // Take last 4 digits of start (24) and last digit of end (8) = "2428"
+          // Or use both years' last 2 digits combined
+          sessionCode = startYear.slice(-2) + endYear.slice(-2);
+        }
+        
+        const userClassName = `${category}-${deptCode}-${sessionCode}-${userClass}`;
         filter.classNames = userClassName;
       }
       // For admin, hod, prof, prof - show ALL announcements (no className filter)
