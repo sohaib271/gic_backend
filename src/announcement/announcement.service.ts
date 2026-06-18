@@ -58,6 +58,8 @@ export class AnnouncementService {
         const userClassName = `${category}-${deptCode}-${session}-${userClass}`;
         filter.classNames = userClassName;
       }
+      // For admin, hod, prof, prof - show ALL announcements (no className filter)
+      // So we don't add className filter for non-students
     }
 
     let announcements = await this.announcementModel
@@ -67,7 +69,9 @@ export class AnnouncementService {
       .populate({ path: 'createdBy', select: 'name role' })
       .lean();
 
-    if (announcements.length === 0) {
+    // Always return results if found, regardless of user role
+    if (announcements.length === 0 && Object.keys(filter).length === 0) {
+      // If no filters applied and no announcements found, still return empty array
       return { message: 'No announcements found', announcements: [] };
     }
 
