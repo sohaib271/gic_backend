@@ -28,6 +28,9 @@ export class Announcement {
 
   @Prop({ type: Types.ObjectId, ref: User.name, required: true })
   createdBy!: Types.ObjectId;
+
+  @Prop({ type: [{ type: Types.ObjectId, ref: User.name }], default: [] })
+  readBy!: Types.ObjectId[];
 }
 
 export const AnnouncementSchema = SchemaFactory.createForClass(Announcement);
@@ -35,3 +38,4 @@ AnnouncementSchema.index({ teacherId: 1 });
 AnnouncementSchema.index({ classNames: 1 });
 AnnouncementSchema.index({ creatorRole: 1 });
 AnnouncementSchema.index({ createdAt: -1 });
+AnnouncementSchema.index({ readBy: 1 });

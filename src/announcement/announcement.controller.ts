@@ -2,8 +2,10 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Query,
+  Param,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -23,11 +25,13 @@ export class AnnouncementController {
     @Query('teacherId') teacherId?: string,
     @Query('className') className?: string,
     @Query('creatorRole') creatorRole?: string,
+    @Req() req?: any,
   ) {
     return this.announcementService.getAnnouncements(
       teacherId,
       className,
       creatorRole,
+      req?.user?.sub,
     );
   }
 
@@ -39,5 +43,10 @@ export class AnnouncementController {
     @Req() req: any,
   ) {
     return this.announcementService.createAnnouncement(dto, req.user.sub, req.user.role);
+  }
+
+  @Delete(':id')
+  deleteAnnouncement(@Param('id') id: string, @Req() req: any) {
+    return this.announcementService.deleteAnnouncement(id, req.user.sub, req.user.role);
   }
 }
