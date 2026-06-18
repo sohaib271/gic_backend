@@ -8,6 +8,7 @@ import { Model, Types } from 'mongoose';
 import { Announcement, AnnouncementDocument } from './schema/announcement.schema';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { User, UserDocument } from 'src/user/schema/user.schema';
+import { Department, DepartmentDocument } from 'src/department/schema/department.schema';
 
 @Injectable()
 export class AnnouncementService {
@@ -15,12 +16,14 @@ export class AnnouncementService {
     @InjectModel(Announcement.name)
     private announcementModel: Model<AnnouncementDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Department.name) private departmentModel: Model<DepartmentDocument>,
   ) {}
 
   async getAnnouncements(
     teacherId?: string,
     className?: string,
     creatorRole?: string,
+    userId?: string,
   ) {
     const filter: Record<string, unknown> = {};
     if (teacherId) {
@@ -34,7 +37,25 @@ export class AnnouncementService {
       filter.creatorRole = creatorRole;
     }
 
-    const announcements = await this.announcementModel
+    // Smart filtering: if no explicit className provided and user is student,
+    // build className from their profile
+    if (!className && userId) {
+      const user = await this.userModel
+        .findById(userId)
+        .populate('department', 'code')
+        .lean();
+      if (user && ['student'].includes(user.role)) {
+        const dept = (user as any).department;
+        const deptCode = dept?.code || '';
+        const category = user.category || '';
+        const session = user.session || '';
+        const userClass = user.class || '';
+        const userClassName = `${category}-${deptCode}-${session}-${userClass}`;
+        filter.classNames = userClassName;
+      }
+    }
+
+    let announcements = await this.announcementModel
       .find(filter)
       .sort({ createdAt: -1 })
       .populate({ path: 'teacherId', select: 'name' })
@@ -43,6 +64,29 @@ export class AnnouncementService {
 
     if (announcements.length === 0) {
       return { message: 'No announcements found', announcements: [] };
+    }
+
+    // Check read status and mark as read
+    if (userId) {
+      const unreadIds: Types.ObjectId[] = [];
+
+      announcements = announcements.map((a: any) => {
+        const isRead = (a.readBy || []).some(
+          (id: Types.ObjectId) => id.toString() === userId,
+        );
+        if (!isRead) {
+          unreadIds.push(a._id);
+        }
+        return { ...a, isRead };
+      });
+
+      // Mark unread as read in background
+      if (unreadIds.length > 0) {
+        this.announcementModel.updateMany(
+          { _id: { $in: unreadIds } },
+          { $addToSet: { readBy: new Types.ObjectId(userId) } },
+        ).catch(() => {}); // fire and forget
+      }
     }
 
     return { count: announcements.length, announcements };
@@ -77,9 +121,7 @@ export class AnnouncementService {
         announcement,
       };
     } catch (error) {
-      if (
-        error instanceof BadRequestException
-      ) {
+      if (error instanceof BadRequestException) {
         throw error;
       }
 
@@ -95,6 +137,26 @@ export class AnnouncementService {
 
       throw new InternalServerErrorException('Something went wrong');
     }
+  }
+
+  async deleteAnnouncement(announcementId: string, userId: string, userRole: string) {
+    this.validateObjectId(announcementId, 'Invalid announcement ID');
+
+    const announcement = await this.announcementModel.findById(announcementId).lean();
+    if (!announcement) {
+      throw new BadRequestException('Announcement not found');
+    }
+
+    // Only creator or admin can delete
+    const isCreator = announcement.createdBy.toString() === userId;
+    const isAdmin = userRole === 'admin';
+
+    if (!isCreator && !isAdmin) {
+      throw new BadRequestException('You are not authorized to delete this announcement');
+    }
+
+    await this.announcementModel.findByIdAndDelete(announcementId);
+    return { message: 'Announcement deleted successfully' };
   }
 
   private validateObjectId(id: string, message: string) {
