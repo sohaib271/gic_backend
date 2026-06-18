@@ -6,6 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "seed": "ts-node -r tsconfig-paths/register src/others-stuff/seeder/admin.seeder.ts",
     "build": "nest build",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",

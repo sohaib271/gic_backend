@@ -8,6 +8,7 @@ import { ClassModule } from './class/class.module';
 import { AttendenceModule } from './attendence/attendence.module';
 import * as dns from "dns"
 import { TeacherModule } from './teacher/teacher.module';
+import { AnnouncementModule } from './announcement/announcement.module';
 dns.setServers(["1.1.1.1","8.8.8.8"]);
 
 @Module({
@@ -26,6 +27,7 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
     ClassModule,
     AttendenceModule,
     TeacherModule,
+    AnnouncementModule,
   ],
   controllers: [],
   providers: [],
