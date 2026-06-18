@@ -7,11 +7,13 @@ import { User, UserSchema } from 'src/user/schema/user.schema';
 import { AuthModule } from 'src/auth/auth.module';
 import { UserModule } from 'src/user/user.module';
 import { Department, DepartmentSchema } from 'src/department/schema/department.schema';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
     AuthModule,
     UserModule,
+    NotificationModule,
     MongooseModule.forFeature([
       { name: Announcement.name, schema: AnnouncementSchema },
       { name: User.name, schema: UserSchema },

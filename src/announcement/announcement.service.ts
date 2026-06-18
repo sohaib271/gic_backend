@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -9,14 +10,18 @@ import { Announcement, AnnouncementDocument } from './schema/announcement.schema
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { User, UserDocument } from 'src/user/schema/user.schema';
 import { Department, DepartmentDocument } from 'src/department/schema/department.schema';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class AnnouncementService {
+  private logger = new Logger('AnnouncementService');
+
   constructor(
     @InjectModel(Announcement.name)
     private announcementModel: Model<AnnouncementDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Department.name) private departmentModel: Model<DepartmentDocument>,
+    private notificationService: NotificationService,
   ) {}
 
   async getAnnouncements(
@@ -99,10 +104,16 @@ export class AnnouncementService {
 
       // Validate teacher ID exists
       const teacher = await this.userModel
-        .exists({ _id: new Types.ObjectId(dto.teacherId) })
+        .findById(dto.teacherId)
         .lean();
       if (!teacher) {
         throw new BadRequestException('Invalid teacher');
+      }
+
+      // Get creator's info for notifications
+      const creator = await this.userModel.findById(createdBy).lean();
+      if (!creator) {
+        throw new BadRequestException('Invalid creator');
       }
 
       const announcement = new this.announcementModel({
@@ -115,6 +126,39 @@ export class AnnouncementService {
       });
 
       await announcement.save();
+
+      // ============================================================
+      // 📢 SEND NOTIFICATIONS TO STUDENTS
+      // After announcement is saved, notify all students of those classes
+      // ============================================================
+
+      const targetClasses = Array.isArray(dto.className) ? dto.className : [dto.className];
+
+      // Send notifications asynchronously (don't wait)
+      this.notificationService
+        .sendToClass(
+          targetClasses,
+          {
+            senderId: createdBy,
+            senderName: creator.name || 'Admin',
+            senderRole: creatorRole,
+          },
+          dto.title,
+          dto.description,
+          'announcement',
+          {
+            announcementId: announcement._id.toString(),
+            classNames: targetClasses,
+          },
+        )
+        .then((result) => {
+          this.logger.log(
+            `📢 Announcement notifications sent: ${result.notificationsCreated} created, ${result.studentsNotified} students notified`,
+          );
+        })
+        .catch((err) => {
+          this.logger.error('Failed to send notifications', err);
+        });
 
       return {
         message: 'Announcement created successfully',
