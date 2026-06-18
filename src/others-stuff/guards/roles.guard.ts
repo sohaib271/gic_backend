@@ -21,20 +21,23 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
     
-    // Check if user is admin
-    if (user.role === 'admin') {
-      return true;
+    if (requiredRoles.includes(user.role)) {
+       return true;
     }
-    
-    // For 'hod' required role: check if user has isHod=true in database
+  
     if (requiredRoles.includes('hod')) {
-      const dbUser = await this.userModel.findById(user.sub).select("_id isHod").lean();
-      
-      if (dbUser?.isHod === true) {
+      const findU = await this.userModel.findById(user.sub).select("_id department isHod role").lean();
+      if (findU?.isHod === true) {
+        const req = context.switchToHttp().getRequest();
+        const targetDept = req.query.department;
+        
+        // If department query param is provided, validate it matches
+        if (targetDept) {
+          return findU?.department?.toString() === targetDept.toString();
+        }
         return true;
       }
     }
-    
     return false;
   }
 }
