@@ -3,6 +3,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -259,7 +260,7 @@ export class AnnouncementService {
         if (normalized.startsWith('bs')) return 'BS';
         if (normalized.startsWith('adp')) return 'ADP';
         if (normalized.includes('intermediate')) return 'Intermediate';
-        if (!value || value.trim().isEmpty) return '';
+        if (!value || value.trim() === '') return '';
         return value.trim()[0].toUpperCase() + value.trim().substring(1);
     }
   }
