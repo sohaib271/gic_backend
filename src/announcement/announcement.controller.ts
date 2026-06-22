@@ -45,6 +45,11 @@ export class AnnouncementController {
     return this.announcementService.createAnnouncement(dto, req.user.sub, req.user.role);
   }
 
+  @Post(':id/read')
+  markAsRead(@Param('id') id: string, @Req() req: any) {
+    return this.announcementService.markAsRead(id, req.user.sub);
+  }
+
   @Delete(':id')
   deleteAnnouncement(@Param('id') id: string, @Req() req: any) {
     return this.announcementService.deleteAnnouncement(id, req.user.sub, req.user.role);
