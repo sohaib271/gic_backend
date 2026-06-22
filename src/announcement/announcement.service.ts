@@ -52,7 +52,12 @@ export class AnnouncementService {
       if (user && ['student'].includes(user.role)) {
         const dept = (user as any).department;
         const deptCode = dept?.code || '';
-        const category = user.category || '';
+        // Use student's category, fallback to department's category
+        const rawCategory = user.category || dept?.category || '';
+        
+        // Normalize category like Flutter does: bs_adp -> BS, adp -> ADP, etc.
+        const category = this.formatCategory(rawCategory);
+        
         const sessionStr = user.session || '';
         const userClass = user.class || '';
         
@@ -68,6 +73,7 @@ export class AnnouncementService {
           sessionCode = startYear.slice(-2) + endYear.slice(-2);
         }
         
+        // Build className like: BS-IT-2428-IV
         const userClassName = `${category}-${deptCode}-${sessionCode}-${userClass}`;
         filter.classNames = userClassName;
       }
@@ -88,27 +94,15 @@ export class AnnouncementService {
       return { message: 'No announcements found', announcements: [] };
     }
 
-    // Check read status and mark as read
+    // Check read status (DO NOT auto-mark as read here)
+    // Read status will be marked only when user opens the detail screen
     if (userId) {
-      const unreadIds: Types.ObjectId[] = [];
-
       announcements = announcements.map((a: any) => {
         const isRead = (a.readBy || []).some(
           (id: Types.ObjectId) => id.toString() === userId,
         );
-        if (!isRead) {
-          unreadIds.push(a._id);
-        }
         return { ...a, isRead };
       });
-
-      // Mark unread as read in background
-      if (unreadIds.length > 0) {
-        this.announcementModel.updateMany(
-          { _id: { $in: unreadIds } },
-          { $addToSet: { readBy: new Types.ObjectId(userId) } },
-        ).catch(() => {}); // fire and forget
-      }
     }
 
     return { count: announcements.length, announcements };
@@ -223,6 +217,50 @@ export class AnnouncementService {
   private validateObjectId(id: string, message: string) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException(message);
+    }
+  }
+
+  /**
+   * Mark an announcement as read by the user
+   * Called when user opens the detail screen
+   */
+  async markAsRead(announcementId: string, userId: string) {
+    this.validateObjectId(announcementId, 'Invalid announcement ID');
+
+    const announcement = await this.announcementModel.findById(announcementId).lean();
+    if (!announcement) {
+      throw new NotFoundException('Announcement not found');
+    }
+
+    // Add user to readBy array if not already there
+    await this.announcementModel.updateOne(
+      { _id: new Types.ObjectId(announcementId) },
+      { $addToSet: { readBy: new Types.ObjectId(userId) } },
+    );
+
+    return { message: 'Marked as read' };
+  }
+
+  /**
+   * Normalize category to display format (matches Flutter _formatCategory)
+   * bs -> BS, adp -> ADP, intermediate -> Intermediate, bs_adp -> BS
+   */
+  private formatCategory(value: string): string {
+    const normalized = (value || '').trim().toLowerCase();
+    switch (normalized) {
+      case 'bs':
+        return 'BS';
+      case 'adp':
+        return 'ADP';
+      case 'intermediate':
+        return 'Intermediate';
+      default:
+        // Handle bs_adp -> BS, etc.
+        if (normalized.startsWith('bs')) return 'BS';
+        if (normalized.startsWith('adp')) return 'ADP';
+        if (normalized.includes('intermediate')) return 'Intermediate';
+        if (!value || value.trim().isEmpty) return '';
+        return value.trim()[0].toUpperCase() + value.trim().substring(1);
     }
   }
 }
