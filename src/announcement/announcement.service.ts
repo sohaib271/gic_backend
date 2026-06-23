@@ -44,42 +44,34 @@ export class AnnouncementService {
     }
 
     // Smart filtering: if no explicit className provided and user is student,
-    // build className from their profile
-    if (!className && userId) {
+    // filter by DEPARTMENT (not exact class) - so student sees all announcements for their dept
+    let pipeline: any[] = [];
+    const needsAggregation = !className && userId;
+    
+    if (needsAggregation) {
       const user = await this.userModel
         .findById(userId)
         .populate('department', 'code')
         .lean();
       if (user && ['student'].includes(user.role)) {
         const dept = (user as any).department;
-        const deptCode = dept?.code || '';
-        // Use student's category, fallback to department's category
-        const rawCategory = user.category || dept?.category || '';
+        const deptCode = (dept?.code || '').toUpperCase();
         
-        // Normalize category like Flutter does: bs_adp -> BS, adp -> ADP, etc.
-        const category = this.formatCategory(rawCategory);
-        
-        const sessionStr = user.session || '';
-        const userClass = user.class || '';
-        
-        // Convert session "2024-2028" to "2428" format
-        // Handle various session formats
-        let sessionCode = sessionStr;
-        const sessionMatch = sessionStr.match(/(\d{4})-(\d{4})/);
-        if (sessionMatch) {
-          const startYear = sessionMatch[1];
-          const endYear = sessionMatch[2];
-          // Take last 4 digits of start (24) and last digit of end (8) = "2428"
-          // Or use both years' last 2 digits combined
-          sessionCode = startYear.slice(-2) + endYear.slice(-2);
+        if (deptCode) {
+          // Use $expr with $regexMatch to filter announcements where ANY className contains dept code
+          // e.g., "BS-IT-2428-CS1-IV" will match for IT department
+          filter.$expr = {
+            $anyElementTrue: {
+              $map: {
+                input: '$classNames',
+                as: 'cn',
+                in: { $regexMatch: { input: '$$cn', regex: deptCode, options: 'i' } }
+              }
+            }
+          };
         }
-        
-        // Build className like: BS-IT-2428-IV
-        const userClassName = `${category}-${deptCode}-${sessionCode}-${userClass}`;
-        filter.classNames = userClassName;
       }
       // For admin, hod, prof, prof - show ALL announcements (no className filter)
-      // So we don't add className filter for non-students
     }
 
     let announcements = await this.announcementModel
