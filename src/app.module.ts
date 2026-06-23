@@ -10,6 +10,7 @@ import * as dns from "dns"
 import { TeacherModule } from './teacher/teacher.module';
 import { AnnouncementModule } from './announcement/announcement.module';
 import { NotificationModule } from './notification/notification.module';
+import { RemarksModule } from './remarks/remarks.module';
 dns.setServers(["1.1.1.1","8.8.8.8"]);
 
 @Module({
@@ -30,6 +31,7 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
     TeacherModule,
     AnnouncementModule,
     NotificationModule,
+    RemarksModule,
   ],
   controllers: [],
   providers: [],
