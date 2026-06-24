@@ -23,9 +23,11 @@ export class RemarksService {
       throw new NotFoundException('User not found');
     }
 
+    // For 'general' entity type, use entityId as-is (not a MongoDB ObjectId)
+    const isGeneral = entityType === 'general';
     const remark = new this.remarkModel({
       entityType: entityType as RemarkEntityType,
-      entityId: new Types.ObjectId(entityId),
+      entityId: isGeneral ? entityId : new Types.ObjectId(entityId),
       authorId: new Types.ObjectId(userId),
       authorName: user.name,
       authorRole: user.role,
@@ -36,10 +38,12 @@ export class RemarksService {
   }
 
   async getRemarksByEntity(entityType: RemarkEntityType, entityId: string) {
+    // For 'general' entity type, use entityId as-is (not a MongoDB ObjectId)
+    const isGeneral = entityType === RemarkEntityType.GENERAL;
     return this.remarkModel
       .find({
         entityType,
-        entityId: new Types.ObjectId(entityId),
+        entityId: isGeneral ? entityId : new Types.ObjectId(entityId),
       })
       .sort({ createdAt: 1 })
       .exec();
