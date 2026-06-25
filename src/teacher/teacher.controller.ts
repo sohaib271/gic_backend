@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 
 import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { Roles } from 'src/others-stuff/guards/roles.decorator';
@@ -29,8 +29,8 @@ export class TeacherController {
   @Get('attendance-records')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  getRecords() {
-    return this.teacherService.getRecord();
+  getRecords(@Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.teacherService.getRecord(Number(page), Number(limit));
   }
   // teacher.controller.ts
 @Get('today-status')
@@ -58,14 +58,22 @@ generateQR() {
   @Get('attendance')
   @UseGuards(RolesGuard)
   @Roles('proff')
-  getMyAttendance(@Req() req: any) {
-    return this.teacherService.getMyAttendance(req?.user?.sub);
+  getMyAttendance(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.teacherService.getMyAttendance(req?.user?.sub, Number(page), Number(limit));
   }
 
   @Get('attendance/:teacherId')
   @UseGuards(RolesGuard)
   @Roles('admin', 'hod')
-  getTeacherAttendance(@Param('teacherId') teacherId: string) {
-    return this.teacherService.getTeacherAttendance(teacherId);
+  getTeacherAttendance(
+    @Param('teacherId') teacherId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.teacherService.getTeacherAttendance(teacherId, Number(page), Number(limit));
   }
 }

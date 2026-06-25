@@ -31,6 +31,31 @@ export class UserService {
     return bcrypt.hash(password, 10);
   }
 
+  private isPaginationRequested(page?: number, limit?: number) {
+    return Number.isFinite(page) || Number.isFinite(limit);
+  }
+
+  private getPagination(page?: number, limit?: number) {
+    const safePage = Number.isFinite(page) && page && page > 0 ? Math.floor(page) : 1;
+    const safeLimit = Number.isFinite(limit) && limit && limit > 0 ? Math.min(Math.floor(limit), 100) : 25;
+    return {
+      page: safePage,
+      limit: safeLimit,
+      skip: (safePage - 1) * safeLimit,
+    };
+  }
+
+  private paginatedResponse<T>(items: T[], total: number, page: number, limit: number, key: string) {
+    return {
+      [key]: items,
+      total,
+      count: items.length,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
   /* ======================
      CREATE STUDENT
   ======================= */
@@ -206,22 +231,37 @@ const failed: {
   /* ======================
      GET ALL USERS
   ======================= */
-  async getAllUsers(role?: string,department?:string) {
+  async getAllUsers(role?: string,department?:string,page?:number,limit?:number) {
     let filter = {};
     if(role) filter={role};
     if(department) filter={department};
     if(role && department) filter={role,department};
-    const u = await this.userModel.find(filter)
-  .lean()
-  .populate({
-    path: 'department',
-    select: '_id category code' // Selects only these three fields
-  });
+    const shouldPaginate = this.isPaginationRequested(page, limit);
+    const pagination = this.getPagination(page, limit);
+    const query = this.userModel.find(filter)
+      .sort({ createdAt: -1 })
+      .lean()
+      .populate({
+        path: 'department',
+        select: '_id category code' // Selects only these three fields
+      });
+
+    if (shouldPaginate) {
+      query.skip(pagination.skip).limit(pagination.limit);
+    }
+
+    const [u, total] = await Promise.all([
+      query,
+      shouldPaginate ? this.userModel.countDocuments(filter) : Promise.resolve(0),
+    ]);
 
   const users=u.map(user => this.removeNull(user));
 
 
-    return users.map((user) => this.sanitizeUser(user));
+    const sanitizedUsers = users.map((user) => this.sanitizeUser(user));
+    if (!shouldPaginate) return sanitizedUsers;
+
+    return this.paginatedResponse(sanitizedUsers, total, pagination.page, pagination.limit, 'users');
   }
 
   private removeNull(obj){
@@ -265,9 +305,11 @@ const failed: {
   }
 
   // class.service.ts
-async getTeacherSchedule(teacherId: string) {
+async getTeacherSchedule(teacherId: string, page?: number, limit?: number) {
   const isExist = await this.userModel.exists({ _id: teacherId, role: "proff" });
   if (!isExist) throw new NotFoundException("Teacher not found");
+  const shouldPaginate = this.isPaginationRequested(page, limit);
+  const pagination = this.getPagination(page, limit);
 
   // ✅ Find all classes where this teacher is assigned
   const classes = await this.classModel
@@ -299,7 +341,15 @@ async getTeacherSchedule(teacherId: string) {
         department: (cls.departmentId as any)?.code ?? '—',
       }));
     });
-    return { schedule };
+    if (!shouldPaginate) return { schedule };
+
+    return this.paginatedResponse(
+      schedule.slice(pagination.skip, pagination.skip + pagination.limit),
+      schedule.length,
+      pagination.page,
+      pagination.limit,
+      'schedule',
+    );
   }
 
   async getStudentTimetable(studentId: string) {

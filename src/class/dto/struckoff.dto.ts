@@ -17,8 +17,7 @@ export class StruckOffStudentDto {
 // dto/unstruck-off.dto.ts
 
 export class UnStruckOffStudentDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: 'Reason is required' })
-  @MinLength(5, { message: 'Reason must be at least 5 characters' })
-  reason!: string;
+  reason?: string;
 }
