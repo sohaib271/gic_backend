@@ -26,6 +26,29 @@ export class AttendenceService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
   ) {}
 
+private isPaginationRequested(page?: number, limit?: number) {
+  return Number.isFinite(page) || Number.isFinite(limit);
+}
+
+private getPagination(page?: number, limit?: number) {
+  const safePage = Number.isFinite(page) && page && page > 0 ? Math.floor(page) : 1;
+  const safeLimit = Number.isFinite(limit) && limit && limit > 0 ? Math.min(Math.floor(limit), 100) : 25;
+  return {
+    page: safePage,
+    limit: safeLimit,
+    skip: (safePage - 1) * safeLimit,
+  };
+}
+
+private paginationMeta(total: number, page: number, limit: number) {
+  return {
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
+}
+
   // ✅ Parse date string correctly — treat it as a local calendar date
 // "2025-04-28" should mean April 28 regardless of server timezone
 
@@ -140,16 +163,24 @@ getNowInPKT():{ nowTotal: number } {
 }
 
   // attendence.service.ts — add this method
-  async getMyAttendanceHistory(teacherId: string, classId?: string) {
+  async getMyAttendanceHistory(teacherId: string, classId?: string, page?: number, limit?: number) {
     const filter: any = { teacherId };
     if (classId) filter.classId = classId;
+    const shouldPaginate = this.isPaginationRequested(page, limit);
+    const pagination = this.getPagination(page, limit);
 
-  const records = await this.attendenceModel
+  const query = this.attendenceModel
     .find(filter)
     .lean()
     .populate({ path: "studentId", select: "name lastName specialId" })
     .populate({ path: "classId",   select: "className category session" })
     .sort({ date: -1 });
+  if (shouldPaginate) query.skip(pagination.skip).limit(pagination.limit);
+
+  const [records, totalRecords] = await Promise.all([
+    query,
+    shouldPaginate ? this.attendenceModel.countDocuments(filter) : Promise.resolve(0),
+  ]);
 
     // ✅ Group by classId → date → records
     const grouped: Record<
@@ -167,11 +198,15 @@ getNowInPKT():{ nowTotal: number } {
       grouped[cid].dates[dateKey].push(r);
     });
 
-    return { history: grouped, total: records.length };
+    return {
+      history: grouped,
+      total: shouldPaginate ? totalRecords : records.length,
+      ...(shouldPaginate ? this.paginationMeta(totalRecords, pagination.page, pagination.limit) : {}),
+    };
   }
 
 // ── Also add: get attendance for a specific class+date (for professor view)
-async getClassAttendanceForTeacher(classId: string, teacherId: string, date: string) {
+async getClassAttendanceForTeacher(classId: string, teacherId: string, date: string, page?: number, limit?: number) {
   const cls = await this.classModel.findById(classId).select("_id").lean();
   if (!cls) throw new NotFoundException("Class does not exist");
 
@@ -181,13 +216,28 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
 
  const { dayStart, dayEnd } = this.parseDateToUTCRange(date);
 
-  const records = await this.attendenceModel
-    .find({ classId, teacherId, date: { $gte: dayStart, $lte: dayEnd } })
+  const shouldPaginate = this.isPaginationRequested(page, limit);
+  const pagination = this.getPagination(page, limit);
+  const filter = { classId, teacherId, date: { $gte: dayStart, $lte: dayEnd } };
+  const query = this.attendenceModel
+    .find(filter)
     .lean()
     .populate({ path: "studentId", select: "name lastName specialId" })
     .sort({ createdAt: 1 });
+  if (shouldPaginate) query.skip(pagination.skip).limit(pagination.limit);
 
-    return { date, classId, records, total: records.length };
+  const [records, totalRecords] = await Promise.all([
+    query,
+    shouldPaginate ? this.attendenceModel.countDocuments(filter) : Promise.resolve(0),
+  ]);
+
+    return {
+      date,
+      classId,
+      records,
+      total: shouldPaginate ? totalRecords : records.length,
+      ...(shouldPaginate ? this.paginationMeta(totalRecords, pagination.page, pagination.limit) : {}),
+    };
   }
 
   async markBulkAttendence(dto: BulkAttendenceDto) {
@@ -293,26 +343,50 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
 }
 
   // ── Get attendance for a class on a specific date ─────────
-  async getClassAttendenceByDate(classId: string, date: string) {
+  async getClassAttendenceByDate(classId: string, date: string, page?: number, limit?: number) {
     const cls = await this.classModel.findById(classId).select("_id").lean();
     if (!cls) throw new NotFoundException("Class does not exist");
 
    const { dayStart, dayEnd } = this.parseDateToUTCRange(date);
 
-    const records = await this.attendenceModel
-      .find({ classId, date: { $gte: dayStart, $lte: dayEnd } })
+    const shouldPaginate = this.isPaginationRequested(page, limit);
+    const pagination = this.getPagination(page, limit);
+    const filter = { classId, date: { $gte: dayStart, $lte: dayEnd } };
+    const query = this.attendenceModel
+      .find(filter)
       .lean()
       .populate({ path: "studentId", select: "name lastName specialId" })
       .populate({ path: "teacherId", select: "name lastName" })
       .sort({ lectureNumber: 1 });
+    if (shouldPaginate) query.skip(pagination.skip).limit(pagination.limit);
 
-    return { date, classId, total: records.length, records };
+    const [records, totalRecords] = await Promise.all([
+      query,
+      shouldPaginate ? this.attendenceModel.countDocuments(filter) : Promise.resolve(0),
+    ]);
+
+    return {
+      date,
+      classId,
+      total: shouldPaginate ? totalRecords : records.length,
+      records,
+      ...(shouldPaginate ? this.paginationMeta(totalRecords, pagination.page, pagination.limit) : {}),
+    };
   }
 
   // ── Get attendance summary for a student in a class ───────
-  async getStudentAttendence(classId: string, studentId: string) {
+  async getStudentAttendence(classId: string, studentId: string, page?: number, limit?: number) {
+    const shouldPaginate = this.isPaginationRequested(page, limit);
+    const pagination = this.getPagination(page, limit);
+    const filter = { classId, studentId };
+    const recordsQuery = this.attendenceModel
+      .find(filter)
+      .sort({ date: -1, lectureNumber: 1 })
+      .lean();
+    if (shouldPaginate) recordsQuery.skip(pagination.skip).limit(pagination.limit);
+
     const [records, summary] = await Promise.all([
-      this.attendenceModel.find({ classId, studentId }).lean(),
+      recordsQuery,
       this.attendenceModel.aggregate([
         { $match: { classId: classId, studentId:studentId } },
         {
@@ -342,6 +416,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
       leave,
       percentage,
       records,
+      ...(shouldPaginate ? this.paginationMeta(total, pagination.page, pagination.limit) : {}),
     };
   }
 
@@ -350,6 +425,8 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
     studentId: string,
     date?: string,
     classId?: string,
+    page?: number,
+    limit?: number,
   ) {
     const filter: any = { studentId };
     if (classId) filter.classId = classId;
@@ -364,16 +441,21 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
       filter.date = { $gte: dayStart, $lte: dayEnd };
     }
 
-    const records = await this.attendenceModel
+    const shouldPaginate = this.isPaginationRequested(page, limit);
+    const pagination = this.getPagination(page, limit);
+    const allRecords = await this.attendenceModel
       .find(filter)
       .populate({ path: 'classId', select: 'className category session' })
       .populate({ path: 'teacherId', select: 'name lastName' })
       .sort({ date: -1, lectureNumber: 1 });
+    const records = shouldPaginate
+      ? allRecords.slice(pagination.skip, pagination.skip + pagination.limit)
+      : allRecords;
 
-    const total = records.length;
-    const present = records.filter((r) => r.attendenceStatus === 'P').length;
-    const absent = records.filter((r) => r.attendenceStatus === 'A').length;
-    const leave = records.filter((r) => r.attendenceStatus === 'L').length;
+    const total = allRecords.length;
+    const present = allRecords.filter((r) => r.attendenceStatus === 'P').length;
+    const absent = allRecords.filter((r) => r.attendenceStatus === 'A').length;
+    const leave = allRecords.filter((r) => r.attendenceStatus === 'L').length;
 
     const groupedByDate = records.reduce(
       (acc: Record<string, any[]>, record: any) => {
@@ -396,6 +478,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
       percentage: total > 0 ? ((present / total) * 100).toFixed(1) : '0.0',
       groupedByDate,
       records,
+      ...(shouldPaginate ? this.paginationMeta(total, pagination.page, pagination.limit) : {}),
     };
   }
 

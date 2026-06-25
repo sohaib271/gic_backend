@@ -79,7 +79,7 @@ addTeacherSchedule(
   }
 
   @UseGuards(RolesGuard)
-  @Roles("admin","proff")
+  @Roles("admin","hod","proff")
   @Post("struck-off-student/:classId/:studentId")
   struckOffStudent(
     @Param('classId') classId:string,
@@ -139,8 +139,19 @@ addTeacherSchedule(
   @UseGuards(RolesGuard)
   @Roles("admin","hod","proff")
   @Get('struck-off-students')
-  getStruckOffStudents(){
-    return this.classservice.getStruckOffStudents();
+  getStruckOffStudents(@Query('page') page?: string, @Query('limit') limit?: string){
+    return this.classservice.getStruckOffStudents(Number(page), Number(limit));
+  }
+
+  @UseGuards(RolesGuard)
+  @Roles("admin","hod","proff")
+  @Post('struck-off-records')
+  getStruckOffRecords(
+    @Body('studentIds') studentIds: string[],
+    @Body('page') page?: number,
+    @Body('limit') limit?: number,
+  ){
+    return this.classservice.getStruckOffRecords(studentIds, page, limit);
   }
 
  @UseGuards(RolesGuard)
@@ -155,7 +166,7 @@ addTeacherSchedule(
  }
 
   @UseGuards(RolesGuard)
-  @Roles("admin","proff")
+  @Roles("admin","hod","proff")
   @Get('identify-struck-off-student/:studentId')
   identifyStruckOffStudent(@Param('studentId') studentId:string){
     return this.classservice.identifyStruckOffStudent(studentId);

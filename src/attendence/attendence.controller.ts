@@ -56,9 +56,11 @@ export class AttendenceController {
   getClassAttendence(
     @Param('classId') classId: string,
     @Query('date') date: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     if (!date) return { message: 'Please provide a date query param' };
-    return this.attendenceService.getClassAttendenceByDate(classId, date);
+    return this.attendenceService.getClassAttendenceByDate(classId, date, Number(page), Number(limit));
   }
 
   @Get('student/:classId/:studentId')
@@ -67,8 +69,10 @@ export class AttendenceController {
   getStudentAttendence(
     @Param('classId') classId: string,
     @Param('studentId') studentId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.attendenceService.getStudentAttendence(classId, studentId);
+    return this.attendenceService.getStudentAttendence(classId, studentId, Number(page), Number(limit));
   }
 
   @Get('student/by-date/:studentId')
@@ -78,11 +82,15 @@ export class AttendenceController {
     @Param('studentId') studentId: string,
     @Query('date') date?: string,
     @Query('classId') classId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     return this.attendenceService.getStudentAttendanceByDate(
       studentId,
       date,
       classId,
+      Number(page),
+      Number(limit),
     );
   }
 
@@ -93,8 +101,10 @@ export class AttendenceController {
   getMyHistory(
     @Query('teacherId') teacherId: string,
     @Query('classId') classId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.attendenceService.getMyAttendanceHistory(teacherId, classId);
+    return this.attendenceService.getMyAttendanceHistory(teacherId, classId, Number(page), Number(limit));
   }
 
   @Get('class/:classId/by-teacher')
@@ -104,6 +114,8 @@ export class AttendenceController {
     @Param('classId') classId: string,
     @Query('teacherId') teacherId: string,
     @Query('date') date: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     if (!date) return { message: 'Please provide a date query param' };
     if (!teacherId)
@@ -112,6 +124,8 @@ export class AttendenceController {
       classId,
       teacherId,
       date,
+      Number(page),
+      Number(limit),
     );
   }
 }

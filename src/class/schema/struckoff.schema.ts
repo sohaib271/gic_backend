@@ -8,10 +8,10 @@ export class StatusLog {
   @Prop({ required: true})
   status!: string;
 
-  @Prop({ required: true })
-  reason!: string;
+  @Prop({ default: '' })
+  reason?: string;
 
-  @Prop({ required: true, default: null }) // Use function reference instead of executed Date.now()
+  @Prop({ type: Date, default: null }) // Use function reference instead of executed Date.now()
   start?: Date;
 
   @Prop({ type: Date, default: null }) // Use null instead of empty string for proper Date typing

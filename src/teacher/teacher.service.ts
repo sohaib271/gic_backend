@@ -27,6 +27,29 @@ export class TeacherService {
     private readonly teacherAttendanceModel: Model<TeacherAttendanceDocument>,
   ) {}
 
+  private isPaginationRequested(page?: number, limit?: number) {
+    return Number.isFinite(page) || Number.isFinite(limit);
+  }
+
+  private getPagination(page?: number, limit?: number) {
+    const safePage = Number.isFinite(page) && page && page > 0 ? Math.floor(page) : 1;
+    const safeLimit = Number.isFinite(limit) && limit && limit > 0 ? Math.min(Math.floor(limit), 100) : 25;
+    return {
+      page: safePage,
+      limit: safeLimit,
+      skip: (safePage - 1) * safeLimit,
+    };
+  }
+
+  private paginationMeta(total: number, page: number, limit: number) {
+    return {
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
   // ✅ Sign payload with HMAC-SHA256
   private signPayload(data: string): string {
     return crypto
@@ -292,11 +315,20 @@ export class TeacherService {
     return { success: true, qrDataUrl, expiresIn: '5 minutes' };
   }
 
-  async getRecord() {
-    const records = await this.teacherAttendanceModel
+  async getRecord(page?: number, limit?: number) {
+    const shouldPaginate = this.isPaginationRequested(page, limit);
+    const pagination = this.getPagination(page, limit);
+    const query = this.teacherAttendanceModel
       .find()
       .populate({ path: 'teacherId', select: 'name lastName' })
+      .sort({ currentDate: -1 })
       .lean();
+    if (shouldPaginate) query.skip(pagination.skip).limit(pagination.limit);
+
+    const [records, total] = await Promise.all([
+      query,
+      shouldPaginate ? this.teacherAttendanceModel.countDocuments() : Promise.resolve(0),
+    ]);
 
     if (!records || records.length === 0) {
       throw new NotFoundException('No attendance records found');
@@ -305,10 +337,11 @@ export class TeacherService {
     return {
       success: true,
       records,
+      ...(shouldPaginate ? this.paginationMeta(total, pagination.page, pagination.limit) : {}),
     };
   }
 
-  async getTeacherAttendance(teacherId: string) {
+  async getTeacherAttendance(teacherId: string, page?: number, limit?: number) {
     const teacher = await this.userModel
       .findOne({ _id: teacherId, role: 'proff' })
       .lean();
@@ -316,10 +349,20 @@ export class TeacherService {
     if (!teacher) {
       throw new NotFoundException('Teacher not found');
     }
-    const attendanceRecords = await this.teacherAttendanceModel
-      .find({ teacherId })
+    const shouldPaginate = this.isPaginationRequested(page, limit);
+    const pagination = this.getPagination(page, limit);
+    const filter = { teacherId };
+    const query = this.teacherAttendanceModel
+      .find(filter)
       .populate({ path: 'teacherId', select: 'name lastName' })
+      .sort({ currentDate: -1 })
       .lean();
+    if (shouldPaginate) query.skip(pagination.skip).limit(pagination.limit);
+
+    const [attendanceRecords, total] = await Promise.all([
+      query,
+      shouldPaginate ? this.teacherAttendanceModel.countDocuments(filter) : Promise.resolve(0),
+    ]);
 
     if (!attendanceRecords || attendanceRecords.length === 0) {
       throw new NotFoundException(
@@ -330,10 +373,11 @@ export class TeacherService {
     return {
       success: true,
       attendanceRecords,
+      ...(shouldPaginate ? this.paginationMeta(total, pagination.page, pagination.limit) : {}),
     };
   }
 
-  async getMyAttendance(teacherId: string) {
+  async getMyAttendance(teacherId: string, page?: number, limit?: number) {
     const teacher = await this.userModel
       .findOne({ _id: teacherId, role: 'proff' })
       .lean();
@@ -341,10 +385,20 @@ export class TeacherService {
     if (!teacher) {
       throw new NotFoundException('Teacher not found');
     }
-    const attendanceRecords = await this.teacherAttendanceModel
-      .find({ teacherId })
+    const shouldPaginate = this.isPaginationRequested(page, limit);
+    const pagination = this.getPagination(page, limit);
+    const filter = { teacherId };
+    const query = this.teacherAttendanceModel
+      .find(filter)
       .populate({ path: 'teacherId', select: 'name lastName' })
+      .sort({ currentDate: -1 })
       .lean();
+    if (shouldPaginate) query.skip(pagination.skip).limit(pagination.limit);
+
+    const [attendanceRecords, total] = await Promise.all([
+      query,
+      shouldPaginate ? this.teacherAttendanceModel.countDocuments(filter) : Promise.resolve(0),
+    ]);
 
     if (!attendanceRecords || attendanceRecords.length === 0) {
       throw new NotFoundException('No attendance record exist');
@@ -353,6 +407,7 @@ export class TeacherService {
     return {
       success: true,
       attendanceRecords,
+      ...(shouldPaginate ? this.paginationMeta(total, pagination.page, pagination.limit) : {}),
     };
   }
   async getMyAssignedStudents(teacherId: string) {

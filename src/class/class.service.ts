@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Class, ClassDocument } from './schema/class.schema';
 import { Model, Types } from 'mongoose';
@@ -425,7 +425,8 @@ async addTeacherSchedule(
         .findOne({studentId:student})
         .lean()
         .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department' })
-        .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' });
+        .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' })
+        .populate({ path: 'history.actionBy', select: 'name lastName specialId role' });
       return {
         isStruckOff: Boolean(struckOffRecord),
         struckOffRecord,
@@ -446,26 +447,27 @@ async addTeacherSchedule(
     }
   }
 
-  async unStruckOffStudent(studentId: string, actionBy: string, reason: string) {
+  async unStruckOffStudent(studentId: string, actionBy: string, reason?: string) {
   try {
     this.validateObjectId(studentId, 'Invalid student ID');
     this.validateObjectId(actionBy,  'Invalid action user ID');
-
-    if (!reason?.trim()) {
-      throw new BadRequestException('Reason is required for reinstating a student');
-    }
 
     const studentObjectId = new Types.ObjectId(studentId);
     const actionByObjectId = new Types.ObjectId(actionBy);
 
     // ✅ Fetch student and existing struck off record in parallel
-    const [student, existingRecord] = await Promise.all([
-      this.userModel.exists({ _id: studentObjectId, role: 'student' }),
+    const [student, existingRecord, actor] = await Promise.all([
+      this.userModel.findOne({ _id: studentObjectId, role: 'student' }).select('_id department').lean(),
       this.struckOffModel.findOne({ studentId: studentObjectId }).lean(),
+      this.userModel.findById(actionByObjectId).select('_id role isHod department').lean(),
     ]);
 
     if (!student) {
       throw new UnauthorizedException('Invalid Student');
+    }
+
+    if (!actor) {
+      throw new UnauthorizedException('Invalid action user');
     }
 
     if (!existingRecord) {
@@ -476,12 +478,22 @@ async addTeacherSchedule(
       throw new ConflictException('Student is not currently struck off');
     }
 
-    const now = new Date();
+    const currentActionBy = existingRecord.currentStatus.actionBy?.toString();
+    const actorDepartment = actor.department?.toString();
+    const studentDepartment = student.department?.toString();
+    const canReinstate =
+      actor.role === 'admin' ||
+      (actor.isHod === true && actorDepartment && actorDepartment === studentDepartment) ||
+      currentActionBy === actionByObjectId.toString();
+
+    if (!canReinstate) {
+      throw new ForbiddenException('Only the user who struck off this student, admin, or department HOD can reinstate them');
+    }
 
     // ✅ Reinstatement log — record the end date on history entry and clear currentStatus
     const reinstateLog = {
       status:   'reinstated',
-      reason:   reason.trim(),
+      reason:   reason?.trim() ?? '',
       start:    null,  // ✅ cleared
       end:      null,  // ✅ cleared
       actionBy: actionByObjectId,
@@ -498,6 +510,9 @@ async addTeacherSchedule(
       ).populate({
         path:   'studentId',
         select: 'name lastName specialId email rollNo class session category department',
+      }).populate({
+        path: 'history.actionBy',
+        select: 'name lastName specialId role',
       }),
 
       this.userModel.findByIdAndUpdate(
@@ -516,6 +531,7 @@ async addTeacherSchedule(
       error instanceof BadRequestException  ||
       error instanceof ConflictException    ||
       error instanceof NotFoundException    ||
+      error instanceof ForbiddenException   ||
       error instanceof UnauthorizedException
     ) {
       throw error;
@@ -529,16 +545,39 @@ async addTeacherSchedule(
   }
 }
 
-  async getStruckOffStudents(){
+  private getPagination(page?: number, limit?: number) {
+    const safePage = Number.isFinite(page) && page && page > 0 ? Math.floor(page) : 1;
+    const safeLimit = Number.isFinite(limit) && limit && limit > 0 ? Math.min(Math.floor(limit), 100) : 25;
+    return {
+      page: safePage,
+      limit: safeLimit,
+      skip: (safePage - 1) * safeLimit,
+    };
+  }
+
+  async getStruckOffStudents(page?: number, limit?: number){
     try {
-      const struckOffStudents = await this.struckOffModel
-        .find({ 'currentStatus.status': 'struck_off' })
+      const pagination = this.getPagination(page, limit);
+      const filter = { 'currentStatus.status': 'struck_off' };
+      const [total, struckOffStudents] = await Promise.all([
+        this.struckOffModel.countDocuments(filter),
+        this.struckOffModel
+        .find(filter)
+        .sort({ updatedAt: -1 })
+        .skip(pagination.skip)
+        .limit(pagination.limit)
         .lean()
         .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department' })
-        .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' });
+        .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' })
+        .populate({ path: 'history.actionBy', select: 'name lastName specialId role' }),
+      ]);
 
       return {
         count: struckOffStudents.length,
+        total,
+        page: pagination.page,
+        limit: pagination.limit,
+        totalPages: Math.max(1, Math.ceil(total / pagination.limit)),
         struckOffStudents,
       };
     } catch (error) {
@@ -547,6 +586,45 @@ async addTeacherSchedule(
       }
 
       throw new InternalServerErrorException('Unable to get struck off students');
+    }
+  }
+
+  async getStruckOffRecords(studentIds: string[], page?: number, limit?: number) {
+    try {
+      const validIds = [...new Set(studentIds || [])].filter((id) => Types.ObjectId.isValid(id));
+      if (validIds.length === 0) {
+        return { count: 0, total: 0, page: 1, limit: 25, totalPages: 1, struckOffRecords: [] };
+      }
+
+      const pagination = this.getPagination(page, limit);
+      const filter = { studentId: { $in: validIds.map((id) => new Types.ObjectId(id)) } };
+      const [total, struckOffRecords] = await Promise.all([
+        this.struckOffModel.countDocuments(filter),
+        this.struckOffModel
+        .find(filter)
+        .sort({ updatedAt: -1 })
+        .skip(pagination.skip)
+        .limit(pagination.limit)
+        .lean()
+        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department struckOff' })
+        .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' })
+        .populate({ path: 'history.actionBy', select: 'name lastName specialId role' }),
+      ]);
+
+      return {
+        count: struckOffRecords.length,
+        total,
+        page: pagination.page,
+        limit: pagination.limit,
+        totalPages: Math.max(1, Math.ceil(total / pagination.limit)),
+        struckOffRecords,
+      };
+    } catch (error) {
+      if (error?.name === 'CastError') {
+        throw new BadRequestException('Invalid ID provided');
+      }
+
+      throw new InternalServerErrorException('Unable to get struck off records');
     }
   }
 

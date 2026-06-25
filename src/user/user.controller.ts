@@ -56,8 +56,13 @@ export class UserController {
   @Get()
   @UseGuards(RolesGuard)
   @Roles("admin","proff")
-  getAllUsers(@Query('role') role?: string, @Query('department') department?: string,) {
-    return this.userService.getAllUsers(role,department);
+  getAllUsers(
+    @Query('role') role?: string,
+    @Query('department') department?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.userService.getAllUsers(role, department, Number(page), Number(limit));
   }
 
   @Post('students/bulk-upload')
@@ -105,7 +110,11 @@ bulkUploadStudents(
   @Get('get-schedule/:teacherId')
   @UseGuards(RolesGuard)
   @Roles('admin', 'proff')
-  getTeacherSchedule(@Param('teacherId') teacherId: string) {
-    return this.userService.getTeacherSchedule(teacherId);
+  getTeacherSchedule(
+    @Param('teacherId') teacherId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.userService.getTeacherSchedule(teacherId, Number(page), Number(limit));
   }
 }
