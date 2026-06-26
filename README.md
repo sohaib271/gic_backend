@@ -1,98 +1,156 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# GIC College Management System — Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A NestJS REST API for managing school data including students, faculty, classes, and attendance with JWT authentication and role-based access control.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Tech Stack
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- **NestJS** with TypeScript
+- **MongoDB** via **Mongoose**
+- **JWT & HTTP-Only Cookies** — Secure, cross-site authentication.
+- **Multer** — file uploads (Excel bulk upload)
+- **xlsx** — Excel parsing
+- **qrcode** — QR code generation
+- **bcrypt** — password hashing
+- **class-validator** — DTO validation
 
-## Project setup
+---
 
-```bash
-$ yarn install
+### Required environment variables
+
+Create a `.env` file in the root:
+
+```env
+MONGODB_URI=mongodb://localhost:27017/gic_school
+JWT_SECRET=your-jwt-secret
+QR_SECRET=your-qr-hmac-secret
+PORT=3000
 ```
 
-## Compile and run the project
+---
 
-```bash
-# development
-$ yarn run start
+## Project Structure
 
-# watch mode
-$ yarn run start:dev
-
-# production mode
-$ yarn run start:prod
+```
+src/
+├── auth/                
+├── user/                # Students, professors, staff CRUD + bulk upload
+│   ├── dto/
+│   ├── schema/
+│   └── user.service.ts
+├── class/               # Classes, teacher/student assignment, struck-off, schedule
+│   ├── dto/
+│   ├── schema/
+│   │   ├── class.schema.ts
+│   │   ├── assignes.schema.ts
+│   │   └── struckoff.schema.ts
+│   └── class.service.ts
+├── attendence/          # Student attendance marking and history
+│   ├── dto/
+│   ├── schema/
+│   └── attendence.service.ts
+├── teacher/             # Teacher attendance, QR generation
+│   ├── dto/
+│   ├── schema/
+│   └── teacher.service.ts
+├── department/          # Departments
+└── others-stuff/
+    └── guards/          # AuthGuard, RolesGuard, AdminGuard
 ```
 
-## Run tests
+---
 
-```bash
-# unit tests
-$ yarn run test
+## API Overview
 
-# e2e tests
-$ yarn run test:e2e
+### Auth
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/auth/login` | Login, returns JWT |
 
-# test coverage
-$ yarn run test:cov
-```
+### Users
+| Method | Endpoint | Roles | Description |
+|---|---|---|---|
+| POST | `/users/student` | admin, hod | Create student |
+| POST | `/users/professor` | admin, hod | Create professor |
+| POST | `/users/students/bulk-upload` | admin, hod | Bulk upload via Excel |
+| GET | `/users` | admin, proff | Get all users (filter by role/department) |
+| GET | `/users/me` | all | Get logged-in user |
+| PUT | `/users/:id` | all | Update user (email/password locked) |
+| DELETE | `/users/:id` | admin | Delete user |
+| GET | `/users/get-schedule/:teacherId` | admin, proff | Get teacher's weekly schedule |
+| GET | `/users/student/:studentId/timetable` | admin, student | Get student timetable |
 
-## Deployment
+### Classes
+| Method | Endpoint | Roles | Description |
+|---|---|---|---|
+| POST | `/class/create` | admin, hod | Create class |
+| GET | `/class/all` | admin, hod | Get all classes (filter by category) | Get all classes by department (for  HOD)
+| GET | `/class/my-classes` | proff | Get teacher's assigned classes |
+| GET | `/class/get-class-info/:classId` | admin, proff | Class details |
+| POST | `/class/assign-teacher-to-class/:id` | admin, hod | Assign teacher |
+| PATCH | `/class/:id/assignes/:teacherId` | admin, hod | Update teacher's subject/schedule |
+| PATCH | `/class/:id/assignes/:teacherId/schedule` | admin, hod | Replace schedule |
+| POST | `/class/:id/assignes/:teacherId/schedule` | admin, hod | Append schedule |
+| PATCH | `/class/remove-teacher-from-class/:classId/:teacherId` | admin, hod | Remove teacher |
+| POST | `/class/add-student-in-class/:classId/:studentId` | admin, hod | Enroll student |
+| PATCH | `/class/remove-student-from-class/:classId/:studentId` | admin, hod | Remove student |
+| POST | `/class/struck-off-student/:classId/:studentId` | admin, proff | Struck off student |
+| PATCH | `/class/unstruck-off-student/:studentId` | admin, hod | Reinstate student |
+| GET | `/class/struck-off-students` | admin, hod, proff | List all struck off |
+| GET | `/class/identify-struck-off-student/:studentId` | admin, hod, proff | Student struck off status + history |
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Attendance (Students)
+| Method | Endpoint | Roles | Description |
+|---|---|---|---|
+| POST | `/attendance/mark` | admin, proff | Mark single student |
+| POST | `/attendance/mark-bulk` | admin, proff | Mark entire class |
+| PATCH | `/attendance/update/:attendanceId` | admin, proff | Update record |
+| GET | `/attendance/class/:classId` | admin, proff | Class attendance by date |
+| GET | `/attendance/class/:classId/by-teacher` | admin, proff | Class attendance by teacher + date |
+| GET | `/attendance/student/:classId/:studentId` | admin, proff, student | Student summary |
+| GET | `/attendance/my-history` | proff | Teacher's marked attendance history |
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Teacher Attendance
+| Method | Endpoint | Roles | Description |
+|---|---|---|---|
+| POST | `/teacher/mark-attendance` | proff | Check in / check out via QR |
+| GET | `/teacher/today-status` | proff | Today's check-in/out status |
+| GET | `/teacher/qr` | admin, proff | Generate shared attendance QR |
+| GET | `/teacher/attendance` | proff | Own attendance history |
+| GET | `/teacher/attendance/:teacherId` | admin, proff | Specific teacher's history |
+| GET | `/teacher/attendance-records` | admin | All teacher attendance records |
+| GET | `/teacher/my-assigned-students` | proff | Students assigned to teacher |
 
-```bash
-$ yarn install -g @nestjs/mau
-$ mau deploy
-```
+---
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Attendance Rules
 
-## Resources
+- Teachers can only mark attendance **on the scheduled day** and **within lecture hours + 30-minute grace period**
+- Bulk attendance blocks if already marked for that class/date/lecture
+- Individual update blocked outside lecture window or for past dates
+- All dates stored as **UTC midnight** to avoid timezone drift
+- Current time compared in **PKT (UTC+5)** for schedule validation
 
-Check out a few resources that may come in handy when working with NestJS:
+---
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## QR Attendance Flow
 
-## Support
+1. Admin opens Faculty QR panel → backend generates a signed HMAC-SHA256 payload with 1-minute expiry
+2. Professor opens QR Scanner → selects check-in or check-out → scans QR
+3. Frontend parses payload, checks expiry, gets GPS coordinates
+4. Sends `{ type, gps, qrPayload, qrSignature }` to `/teacher/mark-attendance`
+5. Backend verifies signature, checks duplicate, enforces check-in before check-out, saves record
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+---
 
-## Stay in touch
+## Struck Off Flow
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+1. `POST /class/struck-off-student/:classId/:studentId` — creates/updates `StruckOff` document, sets `currentStatus`, pushes to `history`, marks `user.struckOff = true`
+2. `PATCH /class/unstruck-off-student/:studentId` — stamps `end` date on matching history entry, clears `currentStatus`, sets `user.struckOff = false`, pushes reinstatement log
 
-## License
+---
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## Timezone Notes
+
+The server may run in UTC while the school operates in PKT (UTC+5). All date parsing uses `Date.UTC()` and `getUTCDay()` to avoid local-time shifts. Current time is derived by adding the PKT offset to UTC minutes rather than relying on `new Date().getHours()`.

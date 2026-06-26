@@ -1,9 +1,12 @@
 import { NestFactory } from '@nestjs/core';
+import dotenv from "dotenv";
+dotenv.config();
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import cookieParser from "cookie-parser";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -11,6 +14,7 @@ async function bootstrap() {
   // Serve static files from public folder
   app.useStaticAssets(join(__dirname, '..', 'public'));
 
+  app.use(cookieParser());
   // Enable validation
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
@@ -19,9 +23,24 @@ async function bootstrap() {
   }));
 
   app.enableCors({
-    origin: '*',
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    allowedHeaders: 'Content-Type, Authorization',
+    origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true);
+    }
+    const allowedOrigins = [
+      process.env.PRODUCTION_URL,
+      process.env.DEVELOPMENT_URL,
+    ];
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  allowedHeaders: 'Content-Type, Authorization',
+  credentials: true
   });
 
   const swaggerConfig = new DocumentBuilder()

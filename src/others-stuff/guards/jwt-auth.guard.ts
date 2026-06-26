@@ -14,7 +14,7 @@ export class AuthGuard implements CanActivate {
   ):Promise<boolean>{
     const request=context.switchToHttp().getRequest();
     try {
-      const token=this.extractTokenFromHeader(request);
+      const token = this.extractTokenFromHeader(request) || request.cookies?.access_token;
       if(!token){
         throw new UnauthorizedException("No token from client"); 
       }
@@ -41,8 +41,8 @@ export class AuthGuard implements CanActivate {
   }
 
   private extractTokenFromHeader(request:Request):string | undefined{
-    const [type,token]=request.headers['authorization']?.split(' ');
-    return type=='Bearer'?token:undefined;
+    const [type, token] = request.headers['authorization']?.split(' ') ?? [];
+    return type === 'Bearer' && token && token !== 'undefined' ? token : undefined;
   }
 
   private async verifyToken(token:string){

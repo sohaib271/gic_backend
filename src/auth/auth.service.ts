@@ -17,10 +17,30 @@ export class AuthService {
     private jwtService: JwtService, private emailService:EmailService
   ) {}
 
+  private getAccessTokenCookieOptions() {
+    // `Secure` cookies are deliberately ignored by browsers on an HTTP local
+    // development server.  Set COOKIE_SECURE=true in production (and use
+    // HTTPS); COOKIE_SAME_SITE=none is required only when the web app and API
+    // are on different sites.
+    const sameSite = process.env.COOKIE_SAME_SITE === 'none' ? 'none' : 'lax';
+    const secure =
+      process.env.COOKIE_SECURE === 'true' ||
+      process.env.NODE_ENV === 'production' ||
+      sameSite === 'none';
+
+    return {
+      httpOnly: true,
+      secure,
+      sameSite,
+      maxAge: 20 * 24 * 60 * 60 * 1000,
+      path: '/',
+    } as const;
+  }
+
   /* ======================
      ADMIN LOGIN
   ======================= */
-  async adminLogin(email: string, password: string) {
+  async adminLogin(email: string, password: string,response:any) {
     const admin = await this.userModel.findOne({ email, role: 'admin' })
     if (!admin || !admin.password) {
       throw new UnauthorizedException('Invalid credentials');
@@ -29,6 +49,7 @@ export class AuthService {
     const match = await bcrypt.compare(password, admin.password);
     if (!match) throw new UnauthorizedException('Invalid credentials');
     const res=this.signToken(admin);
+    response.cookie('access_token', res.access_token, this.getAccessTokenCookieOptions());
     const token=res.access_token;
     admin.verifyToken=token;
     await admin.save();
@@ -122,7 +143,7 @@ export class AuthService {
   /* ======================
      NORMAL LOGIN
   ======================= */
-  async login(email: string, password: string) {
+  async login(email: string, password: string,response:any) {
     const user = await this.userModel.findOne({ email });
 
     if (!user || !user.password)
@@ -131,13 +152,16 @@ export class AuthService {
     const match = await bcrypt.compare(password, user.password);
     if (!match) throw new UnauthorizedException('Invalid credentials');
     const res=this.signToken(user);
+    response.cookie('access_token', res.access_token, this.getAccessTokenCookieOptions());
     user.verifyToken=res.access_token;
     await user.save();
     return res;
   }
 
-  async logout(userId:string){
+  async logout(userId:string,res:any){
     const logoutUser=await this.userModel.findByIdAndUpdate({_id:userId},{$set:{verifyToken:null}})
+    const { maxAge, ...cookieOptions } = this.getAccessTokenCookieOptions();
+    res.clearCookie('access_token', cookieOptions);
     if(!logoutUser){
       throw new BadRequestException("Invalid User Id");
     }
