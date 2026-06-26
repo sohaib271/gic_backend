@@ -1,5 +1,5 @@
 // auth.controller.ts
-import { Controller, Post, Body, Param, Get } from '@nestjs/common';
+import { Controller, Post, Body, Param, Get, Res } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AdminLoginDto } from './auth.dto/admin-login.dto';
 import { QrVerifyDto } from './auth.dto/qr-verify.dto';
@@ -11,8 +11,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('admin/login')
-  adminLogin(@Body() dto: AdminLoginDto) {
-    return this.authService.adminLogin(dto.email, dto.password);
+  adminLogin(@Body() dto: AdminLoginDto,@Res({ passthrough: true }) res:any) {
+    return this.authService.adminLogin(dto.email, dto.password,res);
   }
 
    @Get('admin')
@@ -21,13 +21,13 @@ export class AuthController {
     }
 
   @Post('login')
-  login(@Body() dto: AdminLoginDto) {
-    return this.authService.login(dto.email, dto.password);
+  login(@Body() dto: AdminLoginDto,@Res({ passthrough: true }) res:any) {
+    return this.authService.login(dto.email, dto.password,res);
   }
 
   @Get('logout/:id')
-  logout(@Param('id') id:string){
-    return this.authService.logout(id);
+  logout(@Param('id') id:string, @Res({ passthrough: true }) res:any){
+    return this.authService.logout(id,res);
   }
 
   @Post('forgot-password')
