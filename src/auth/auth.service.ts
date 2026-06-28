@@ -22,11 +22,8 @@ export class AuthService {
     // development server.  Set COOKIE_SECURE=true in production (and use
     // HTTPS); COOKIE_SAME_SITE=none is required only when the web app and API
     // are on different sites.
-    const sameSite = process.env.COOKIE_SAME_SITE === 'none' ? 'none' : 'lax';
-    const secure =
-      process.env.COOKIE_SECURE === 'true' ||
-      process.env.NODE_ENV === 'production' ||
-      sameSite === 'none';
+    const sameSite = 'none';
+    const secure =true
 
     return {
       httpOnly: true,
