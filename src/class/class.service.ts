@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Class, ClassDocument } from './schema/class.schema';
-import { Model, Types } from 'mongoose';
+import mongoose, { Model, Types } from 'mongoose';
 import { CreateClassDto } from './dto/class.dto';
 import { AssignedTeacherDto } from './dto/assignes.dto';
 import { User, UserDocument } from 'src/user/schema/user.schema';
@@ -95,19 +95,25 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
   
   async createClass(dto: CreateClassDto, createdBy: string) {
   try {
+    if (dto.category === 'intermediate' && !['I', 'II'].includes(dto.class)) {
+      throw new BadRequestException('Class must be I or II for intermediate');
+    }
+
     const isExist = await this.classModel.exists({ className: dto.className });
     if (isExist) throw new ConflictException('Class of similar name already exists.');
 
+    const mongoFormat=new mongoose.Types.ObjectId(createdBy);
+
     const newClass = new this.classModel({
       ...dto,
-      createdBy,
+      createdBy:mongoFormat,
     });
 
     await newClass.save();
     return { message: 'Class created successfully', newClass };
 
   } catch (error) {
-    if (error instanceof ConflictException) throw error;
+    if (error instanceof BadRequestException || error instanceof ConflictException) throw error;
 
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map((e: any) => e.message);
