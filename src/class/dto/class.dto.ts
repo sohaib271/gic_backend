@@ -14,17 +14,21 @@ export class CreateClassDto {
   @IsMongoId({ message: 'Invalid department' })
   departmentId!: string;
 
-  @IsMongoId({ message: 'Invalid creator ID' })
-  createdBy!: string;
-
   @IsNotEmpty({ message: 'Session is required' })
   @IsString()
   session!: string;
 
-  @IsIn(['I', 'II'], { message: 'Class must be I or II for intermediate' })
+  @IsIn(['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'], {
+    message: 'Class/Semester must be between I and VIII',
+  })
   class!: string;
 
+  @IsIn(['intermediate', 'bs', 'adp'])
   category!: string; // e.g intermediate,bs,adp
+
+  @IsOptional()
+  @IsString()
+  section?: string;
 
   @IsArray()
   @ValidateNested({ each: true })
