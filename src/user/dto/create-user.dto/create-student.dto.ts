@@ -5,7 +5,10 @@ import {
   IsOptional,
   IsString,
   IsArray,
+  IsIn,
+  ValidateIf,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { CreateBaseUserDto } from './create-base-user.dto';
 
 export class CreateStudentDto extends CreateBaseUserDto {
@@ -29,13 +32,28 @@ export class CreateStudentDto extends CreateBaseUserDto {
   @IsString()
   shift?: string;
 
-  @IsString()
+  @IsOptional()
+  @IsIn(['intermediate', 'bs', 'adp'])
+  category?: string;
+
+  @IsOptional()
+  @IsIn(['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'])
+  class?: string;
+
   @IsNotEmpty({message:"Matric marks are required"})
+  @Type(() => Number)
+  @IsNumber()
   matricMarks!: number;
 
-  @IsString()
+  @ValidateIf((student) => student.category !== 'intermediate')
   @IsNotEmpty({message:"Inter marks are required"})
-  interMarks!: number;
+  @Type(() => Number)
+  @IsNumber()
+  interMarks?: number;
+
+  @IsOptional()
+  @IsString()
+  doj?: string;
 
   @IsOptional()
   @IsString()
