@@ -108,7 +108,7 @@ src/
 | PATCH | `/attendance/update/:attendanceId` | admin, proff | Update record |
 | GET | `/attendance/class/:classId` | admin, proff | Class attendance by date |
 | GET | `/attendance/class/:classId/by-teacher` | admin, proff | Class attendance by teacher + date |
-| GET | `/attendance/student/:classId/:studentId` | admin, proff, student | Student summary |
+| GET | `/attendance/student/:classId/:studentId?date=YYYY-MM-DD` | admin, proff, student | Student summary (date is optional) |
 | GET | `/attendance/my-history` | proff | Teacher's marked attendance history |
 
 ### Teacher Attendance

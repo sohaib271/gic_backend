@@ -23,7 +23,7 @@ import { Types } from 'mongoose';
 export class UserService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
-    @InjectModel('Department') private departmentModel: Model<Department>,
+    @InjectModel(Department.name) private departmentModel: Model<Department>,
     @InjectModel(Class.name) private classModel: Model<ClassDocument>,
   ) {}
 

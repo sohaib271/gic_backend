@@ -69,26 +69,14 @@ export class AttendenceController {
   getStudentAttendence(
     @Param('classId') classId: string,
     @Param('studentId') studentId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.attendenceService.getStudentAttendence(classId, studentId, Number(page), Number(limit));
-  }
-
-  @Get('student/by-date/:studentId')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'proff', 'student')
-  getStudentAttendanceByDate(
-    @Param('studentId') studentId: string,
     @Query('date') date?: string,
-    @Query('classId') classId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.attendenceService.getStudentAttendanceByDate(
+    return this.attendenceService.getStudentAttendence(
+      classId,
       studentId,
       date,
-      classId,
       Number(page),
       Number(limit),
     );
