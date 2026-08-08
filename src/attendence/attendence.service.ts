@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model,Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { Class, ClassDocument } from 'src/class/schema/class.schema';
 import { Attendance, AttendenceDocument } from './schema/attendence.schema';
 import { User, UserDocument } from 'src/user/schema/user.schema';
@@ -374,109 +374,65 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
     };
   }
 
-  // ── Get attendance summary for a student in a class ───────
-  async getStudentAttendence(classId: string, studentId: string, page?: number, limit?: number) {
+  // ── Get attendance summary for a student in a class, optionally by date ──
+  async getStudentAttendence(
+    classId: string,
+    studentId: string,
+    date?: string,
+    page?: number,
+    limit?: number,
+  ) {
     const shouldPaginate = this.isPaginationRequested(page, limit);
     const pagination = this.getPagination(page, limit);
-    const filter = { classId, studentId };
+    const filter: any = { classId, studentId };
+
+    if (date) {
+      const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+      const { dayStart, dayEnd } = this.parseDateToUTCRange(date);
+      if (
+        !isoDatePattern.test(date) ||
+        Number.isNaN(dayStart.getTime()) ||
+        dayStart.toISOString().split('T')[0] !== date
+      ) {
+        throw new BadRequestException('Invalid date format. Use YYYY-MM-DD');
+      }
+      filter.date = { $gte: dayStart, $lte: dayEnd };
+    }
+
     const recordsQuery = this.attendenceModel
       .find(filter)
       .sort({ date: -1, lectureNumber: 1 })
       .lean();
     if (shouldPaginate) recordsQuery.skip(pagination.skip).limit(pagination.limit);
 
-    const [records, summary] = await Promise.all([
+    const [records, total, present, absent, leave] = await Promise.all([
       recordsQuery,
-      this.attendenceModel.aggregate([
-        { $match: { classId: classId, studentId:studentId } },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: 1 },
-            present: { $sum: { $cond: [{ $eq: ["$attendenceStatus", "P"] }, 1, 0] } },
-            absent: { $sum: { $cond: [{ $eq: ["$attendenceStatus", "A"] }, 1, 0] } },
-            leave: { $sum: { $cond: [{ $eq: ["$attendenceStatus", "L"] }, 1, 0] } },
-          },
-        },
-      ]),
+      this.attendenceModel.countDocuments(filter),
+      this.attendenceModel.countDocuments({
+        ...filter,
+        attendenceStatus: 'P',
+      }),
+      this.attendenceModel.countDocuments({
+        ...filter,
+        attendenceStatus: 'A',
+      }),
+      this.attendenceModel.countDocuments({
+        ...filter,
+        attendenceStatus: 'L',
+      }),
     ]);
 
-    const total = summary[0]?.total ?? 0;
-    const present = summary[0]?.present ?? 0;
-    const absent = summary[0]?.absent ?? 0;
-    const leave = summary[0]?.leave ?? 0;
     const percentage = total > 0 ? ((present / total) * 100).toFixed(1) : "0.0";
 
     return {
       classId,
       studentId,
-      total,
-      present,
-      absent,
-      leave,
-      percentage,
-      records,
-      ...(shouldPaginate ? this.paginationMeta(total, pagination.page, pagination.limit) : {}),
-    };
-  }
-
-  // ── Get student attendance by date or class ───────────────
-  async getStudentAttendanceByDate(
-    studentId: string,
-    date?: string,
-    classId?: string,
-    page?: number,
-    limit?: number,
-  ) {
-    const filter: any = { studentId };
-    if (classId) filter.classId = classId;
-
-    if (date) {
-      const dateObj = new Date(date);
-      if (Number.isNaN(dateObj.getTime())) {
-        throw new BadRequestException('Invalid date format');
-      }
-      const dayStart = new Date(new Date(dateObj).setHours(0, 0, 0, 0));
-      const dayEnd = new Date(new Date(dateObj).setHours(23, 59, 59, 999));
-      filter.date = { $gte: dayStart, $lte: dayEnd };
-    }
-
-    const shouldPaginate = this.isPaginationRequested(page, limit);
-    const pagination = this.getPagination(page, limit);
-    const allRecords = await this.attendenceModel
-      .find(filter)
-      .populate({ path: 'classId', select: 'className category session' })
-      .populate({ path: 'teacherId', select: 'name lastName' })
-      .sort({ date: -1, lectureNumber: 1 });
-    const records = shouldPaginate
-      ? allRecords.slice(pagination.skip, pagination.skip + pagination.limit)
-      : allRecords;
-
-    const total = allRecords.length;
-    const present = allRecords.filter((r) => r.attendenceStatus === 'P').length;
-    const absent = allRecords.filter((r) => r.attendenceStatus === 'A').length;
-    const leave = allRecords.filter((r) => r.attendenceStatus === 'L').length;
-
-    const groupedByDate = records.reduce(
-      (acc: Record<string, any[]>, record: any) => {
-        const key = new Date(record.date).toISOString().split('T')[0];
-        acc[key] = acc[key] ?? [];
-        acc[key].push(record);
-        return acc;
-      },
-      {},
-    );
-
-    return {
-      studentId,
-      classId: classId ?? null,
       date: date ?? null,
       total,
       present,
       absent,
       leave,
-      percentage: total > 0 ? ((present / total) * 100).toFixed(1) : '0.0',
-      groupedByDate,
+      percentage,
       records,
       ...(shouldPaginate ? this.paginationMeta(total, pagination.page, pagination.limit) : {}),
     };
