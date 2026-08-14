@@ -17,15 +17,20 @@ import {
 
 @Injectable()
 export class TeacherService {
-  private readonly QR_SECRET =
-    process.env.QR_SECRET || 'your-secret-key-change-in-env';
+  private readonly QR_SECRET: string;
 
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectModel(Class.name) private readonly classModel: Model<ClassDocument>,
     @InjectModel(TeacherAttendance.name)
     private readonly teacherAttendanceModel: Model<TeacherAttendanceDocument>,
-  ) {}
+  ) {
+    if (!process.env.QR_SECRET) {
+      throw new Error('QR_SECRET must be configured');
+    }
+
+    this.QR_SECRET = process.env.QR_SECRET;
+  }
 
   private isPaginationRequested(page?: number, limit?: number) {
     return Number.isFinite(page) || Number.isFinite(limit);

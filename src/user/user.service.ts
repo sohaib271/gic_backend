@@ -7,7 +7,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import * as XLSX from 'xlsx';
+import { parse } from 'csv-parse/sync';
 import bcrypt from 'bcrypt';
 import { Model } from 'mongoose';
 import { User, UserDocument } from './schema/user.schema';
@@ -21,6 +21,9 @@ import { Types } from 'mongoose';
 
 @Injectable()
 export class UserService {
+  private readonly spreadsheetRowLimit = 500;
+  private readonly blockedImportKeys = new Set(['__proto__', 'constructor', 'prototype']);
+
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Department.name) private departmentModel: Model<Department>,
@@ -60,14 +63,11 @@ export class UserService {
      CREATE STUDENT
   ======================= */
 async bulkUploadStudents(file: Express.Multer.File) {
-  const workbook = XLSX.read(file.buffer, {
-    type: 'buffer',
-  });
+  if (!file) {
+    throw new BadRequestException('Upload file is required');
+  }
 
-  const sheetName = workbook.SheetNames[0];
-
-  const worksheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(worksheet);
+  const rows = this.parseStudentImportRows(file);
 
   const success: {
   row: number;
@@ -104,6 +104,45 @@ const failed: {
     errors: failed,
   };
 }
+
+  private parseStudentImportRows(file: Express.Multer.File) {
+    const isCsv =
+      file.mimetype === 'text/csv' || file.originalname?.toLowerCase().endsWith('.csv');
+
+    if (!isCsv) {
+      throw new BadRequestException('Only CSV files are supported for bulk upload');
+    }
+
+    const rows = this.parseCsvRows(file.buffer);
+
+    if (rows.length > this.spreadsheetRowLimit) {
+      throw new BadRequestException(
+        `Bulk uploads are limited to ${this.spreadsheetRowLimit} rows`,
+      );
+    }
+
+    return rows.map((row) => this.cleanImportRow(row));
+  }
+
+  private parseCsvRows(buffer: Buffer) {
+    return parse(buffer, {
+      bom: true,
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    }) as Record<string, unknown>[];
+  }
+
+  private cleanImportRow(row: Record<string, unknown>) {
+    const clean: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(row)) {
+      if (this.blockedImportKeys.has(key)) continue;
+      clean[key] = typeof value === 'string' ? value.trim() : value;
+    }
+
+    return clean as unknown as CreateStudentDto;
+  }
   async createStudent(dto: CreateStudentDto) {
     try {
       await this.checkDuplicates(dto.cnic);

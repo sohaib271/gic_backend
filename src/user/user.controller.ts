@@ -11,6 +11,7 @@ import {
   Req,
   UseInterceptors,
   UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateStudentDto } from './dto/create-user.dto/create-student.dto';
@@ -71,6 +72,21 @@ export class UserController {
 @UseInterceptors(
   FileInterceptor('file', {
     storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 2 * 1024 * 1024,
+      files: 1,
+    },
+    fileFilter: (_req, file, callback) => {
+      const allowedTypes = [
+        'text/csv',
+      ];
+
+      if (allowedTypes.includes(file.mimetype)) {
+        return callback(null, true);
+      }
+
+      callback(new BadRequestException('Only CSV files are allowed'), false);
+    },
   }),
 )
 bulkUploadStudents(
