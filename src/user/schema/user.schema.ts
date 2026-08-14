@@ -16,6 +16,12 @@ export class User {
   @Prop({type:Number,default:null})
    otpExpiry?:number | null;
 
+  @Prop({ type: String, default: null })
+  passwordResetToken?: string | null;
+
+  @Prop({ type: Number, default: null })
+  passwordResetExpiry?: number | null;
+
   @Prop({required:true,unique:true})
   email!:string;
 
