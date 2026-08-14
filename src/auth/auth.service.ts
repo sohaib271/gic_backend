@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -9,6 +10,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from 'src/user/schema/user.schema';
 import { EmailService } from 'src/others-stuff/utils/sendEmail.service';
+import { createHash, randomBytes, randomInt } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -54,57 +56,103 @@ export class AuthService {
     return res;
   }
 
-  generateOTP(){
-    return Math.floor(100000 + Math.random()*9000000).toString();
+  private generateOTP() {
+    return randomInt(100000, 1000000).toString();
   }
 
-  async forgetPassword(email:string){
-    const user=await this.userModel.findOne({email}).select("otp otpExpiry");
+  private hashResetToken(token: string) {
+    return createHash('sha256').update(token).digest('hex');
+  }
 
-    if(!user){
-      throw new BadRequestException("Email does not exist");
+  async forgetPassword(email: string) {
+    const normalizedEmail = email.trim();
+    const user = await this.userModel
+      .findOne({ email: normalizedEmail })
+      .select('otp otpExpiry passwordResetToken passwordResetExpiry');
+
+    if (!user) {
+      throw new BadRequestException('Email does not exist');
     }
-    const code=this.generateOTP();
-    user.otp=code;
-    user.otpExpiry= Date.now() + 10 * 60 * 1000;
+
+    const code = this.generateOTP();
+    const otpHash = await bcrypt.hash(code, 10);
+    user.otp = otpHash;
+    user.otpExpiry = Date.now() + 10 * 60 * 1000;
+    user.passwordResetToken = null;
+    user.passwordResetExpiry = null;
 
     await user.save();
 
-  await this.emailService.sendEmail(
-    email,
-    "Password Reset OTP",
-    `<h2>Your OTP is: ${code}</h2>
-     <p>This OTP will expire in 10 minutes.</p>`
-  );
-
-  return "Otp sent to email";
-  }
-
-  async verifyOTP(email:string,otp:string){
-    const user=await this.userModel.findOne({email}).select("otp otpExpiry");
-    
-    if(!user || user.otp!==otp || !user.otpExpiry || user.otpExpiry < Date.now()){
-      throw new BadRequestException("Invalid or Expired Otp");
+    try {
+      await this.emailService.sendEmail(
+        normalizedEmail,
+        'Password Reset OTP',
+        `<h2>Your OTP is: ${code}</h2>
+         <p>This OTP will expire in 10 minutes.</p>`,
+      );
+    } catch {
+      await this.userModel.updateOne(
+        { _id: user._id, otp: otpHash },
+        { $set: { otp: null, otpExpiry: null } },
+      );
+      throw new ServiceUnavailableException(
+        'Unable to send the password reset email. Please try again.',
+      );
     }
 
-    return "Otp verified";
+    return { message: 'OTP sent to email' };
   }
 
-  async resetPassword(email:string,password:string){
-    const user=await this.userModel.findOne({email}).select("password otp otpExpiry");
+  async verifyOTP(email: string, otp: string) {
+    const user = await this.userModel
+      .findOne({ email: email.trim() })
+      .select('otp otpExpiry passwordResetToken passwordResetExpiry');
 
-    if(!user){
-      throw new BadRequestException("User not found");
+    const validOtp = Boolean(
+      user?.otp &&
+        user.otpExpiry &&
+        user.otpExpiry >= Date.now() &&
+        (await bcrypt.compare(otp, user.otp)),
+    );
+
+    if (!user || !validOtp) {
+      throw new BadRequestException('Invalid or expired OTP');
     }
 
-    user.password=await bcrypt.hash(password,10);
+    const resetToken = randomBytes(32).toString('hex');
+    user.otp = null;
+    user.otpExpiry = null;
+    user.passwordResetToken = this.hashResetToken(resetToken);
+    user.passwordResetExpiry = Date.now() + 10 * 60 * 1000;
+    await user.save();
 
-    user.otp=null;
-    user.otpExpiry=null;
+    return { message: 'OTP verified', resetToken };
+  }
+
+  async resetPassword(email: string, password: string, resetToken: string) {
+    const user = await this.userModel
+      .findOne({ email: email.trim() })
+      .select('password passwordResetToken passwordResetExpiry verifyToken');
+
+    const tokenHash = this.hashResetToken(resetToken);
+    if (
+      !user ||
+      !user.passwordResetToken ||
+      user.passwordResetToken !== tokenHash ||
+      !user.passwordResetExpiry ||
+      user.passwordResetExpiry < Date.now()
+    ) {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    user.password = await bcrypt.hash(password, 10);
+    user.passwordResetToken = null;
+    user.passwordResetExpiry = null;
+    user.verifyToken = undefined;
 
     await user.save();
 
-    return "Password Reset Successful"
+    return { message: 'Password reset successful' };
   }
 
   /* ======================
