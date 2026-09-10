@@ -20,9 +20,9 @@ import { EmailService } from 'src/others-stuff/utils/sendEmail.service';
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET'),
+        secret: configService.get('JWT_SECRET') || 'collage_project_secret_key',
         signOptions: {
-          expiresIn: configService.get('JWT_EXPIRY'),
+          expiresIn: configService.get('JWT_EXPIRY') || '7d',
         },
       }),
     }),

@@ -7,11 +7,11 @@
   "license": "UNLICENSED",
   "scripts": {
     "seed": "ts-node -r tsconfig-paths/register src/others-stuff/seeder/admin.seeder.ts",
-    "build": "nest build",
-    "start": "node dist/main.js",
-    "start:dev": "nest start --watch",
-    "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main.js"
+    "build": "node init && nest build",
+    "start": "node init && node dist/main.js",
+    "start:dev": "node init && nest start --watch",
+    "start:debug": "node init && nest start --debug --watch",
+    "start:prod": "node init && node dist/main.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -35,10 +35,12 @@
     "csv-parse": "^7.0.2",
     "dayjs": "^1.11.20",
     "dotenv": "^17.2.3",
+    "firebase-admin": "^14.3.0",
     "helmet": "^8.3.0",
     "js-yaml": "^5.2.3",
     "mongoose": "^9.7.2",
     "multer": "^2.2.0",
+    "node-fetch": "^3.3.2",
     "nodemailer": "^9.0.5",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
