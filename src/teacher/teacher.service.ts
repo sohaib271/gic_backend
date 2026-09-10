@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -17,6 +18,7 @@ import {
 
 @Injectable()
 export class TeacherService {
+  private readonly logger = new Logger(TeacherService.name);
   private readonly QR_SECRET: string;
 
   constructor(
@@ -26,10 +28,13 @@ export class TeacherService {
     private readonly teacherAttendanceModel: Model<TeacherAttendanceDocument>,
   ) {
     if (!process.env.QR_SECRET) {
-      throw new Error('QR_SECRET must be configured');
+      this.logger.warn(
+        'QR_SECRET not configured. Using a random per-process secret for QR codes.',
+      );
+      this.QR_SECRET = crypto.randomBytes(32).toString('hex');
+    } else {
+      this.QR_SECRET = process.env.QR_SECRET;
     }
-
-    this.QR_SECRET = process.env.QR_SECRET;
   }
 
   private isPaginationRequested(page?: number, limit?: number) {
