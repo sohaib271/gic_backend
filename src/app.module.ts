@@ -13,6 +13,7 @@ import { TeacherModule } from './teacher/teacher.module';
 import { AnnouncementModule } from './announcement/announcement.module';
 import { NotificationModule } from './notification/notification.module';
 import { RemarksModule } from './remarks/remarks.module';
+import { FeeModule } from './fee/fee.module';
 dns.setServers(["1.1.1.1","8.8.8.8"]);
 
 @Module({
@@ -40,6 +41,7 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
     AnnouncementModule,
     NotificationModule,
     RemarksModule,
+    FeeModule,
   ],
   controllers: [],
   providers: [
