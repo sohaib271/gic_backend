@@ -22,14 +22,17 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Notification, NotificationDocument } from './notification.schema';
+import { DeviceToken, DeviceTokenDocument } from './device-token.schema';
 import {
   CreateNotificationDto,
   CreateBulkNotificationDto,
   GetNotificationsDto,
+  RegisterDeviceTokenDto,
   NotificationResponseDto,
   SocketNotificationPayload,
 } from './notification.dto';
 import { NotificationGateway } from './notification.gateway';
+import { FirebaseService } from './firebase.service';
 
 @Injectable()
 export class NotificationService {
@@ -40,8 +43,15 @@ export class NotificationService {
     @InjectModel(Notification.name)
     private notificationModel: Model<NotificationDocument>,
 
+    // Inject the DeviceToken model for FCM push tokens
+    @InjectModel(DeviceToken.name)
+    private deviceTokenModel: Model<DeviceTokenDocument>,
+
     // Inject the Socket.io gateway for real-time events
     private notificationGateway: NotificationGateway,
+
+    // Inject Firebase service for FCM push notifications
+    private firebaseService: FirebaseService,
   ) {}
 
   // ============================================================
@@ -76,6 +86,13 @@ export class NotificationService {
 
     // 1b. Send real-time event via Socket.io
     this.sendRealTimeNotification(dto.userId, notification);
+
+    // 1c. Send FCM push notification (if configured)
+    this.sendPushNotification([dto.userId], {
+      title: dto.title,
+      body: dto.message,
+      data: this.buildPushData(dto.type, dto.data || {}, notification._id.toString()),
+    });
 
     return notification;
   }
@@ -127,6 +144,13 @@ export class NotificationService {
         this.sendRealTimeNotification(userId, userNotification);
       }
     }
+
+    // 2d. Send FCM push notifications to all users
+    this.sendPushNotification(dto.userIds, {
+      title: dto.title,
+      body: dto.message,
+      data: this.buildPushData(dto.type, dto.data || {}, ''),
+    });
 
     return result.length;
   }
@@ -210,10 +234,14 @@ export class NotificationService {
 
       // Send via Socket.io
       this.sendRealTimeNotification(userId, notification);
-
-      // Also send via Firebase (if configured - for future)
-      // await this.firebaseService.sendToUser(userId, { title, body: message });
     }
+
+    // 3f. Send FCM push notifications to all students
+    this.sendPushNotification(studentIds, {
+      title,
+      body: message,
+      data: this.buildPushData(type, data, ''),
+    });
 
     this.logger.log(
       `🎯 Class notification sent to ${students.length} students for classes: ${classNames.join(', ')}`,
@@ -459,5 +487,120 @@ export class NotificationService {
 
     // Send to user's room
     this.notificationGateway.sendToUser(userId, payload);
+  }
+
+  // ============================================================
+  // 10. DEVICE TOKEN REGISTRATION (FCM)
+  // ============================================================
+
+  /**
+   * Register an FCM device token for a user
+   * Upserts so re-registering the same token updates platform/device
+   *
+   * @param userId - Owning user
+   * @param dto - { token, platform, deviceName }
+   */
+  async registerDeviceToken(
+    userId: string,
+    dto: RegisterDeviceTokenDto,
+  ): Promise<{ message: string; registered: boolean }> {
+    const token = dto.token.trim();
+    if (!token) {
+      return { message: 'Token is required', registered: false };
+    }
+
+    await this.deviceTokenModel.findOneAndUpdate(
+      { userId: new Types.ObjectId(userId), token },
+      {
+        $set: {
+          platform: dto.platform || 'android',
+          deviceName: dto.deviceName || '',
+        },
+        $setOnInsert: { userId: new Types.ObjectId(userId), token },
+      },
+      { upsert: true, new: true },
+    );
+
+    this.logger.log(`📲 Device token registered for user ${userId}`);
+    return { message: 'Device token registered', registered: true };
+  }
+
+  /**
+   * Unregister an FCM device token (on logout)
+   * Remove from body or query: token
+   */
+  async unregisterDeviceToken(
+    userId: string,
+    token?: string,
+  ): Promise<{ message: string; unregistered: boolean }> {
+    if (!token || token.trim().length === 0) {
+      return { message: 'Token is required', unregistered: false };
+    }
+
+    const result = await this.deviceTokenModel.deleteMany({
+      userId: new Types.ObjectId(userId),
+      token: token.trim(),
+    });
+
+    this.logger.log(
+      `📲 Device token unregistered for user ${userId} (removed ${result.deletedCount})`,
+    );
+
+    return {
+      message: 'Device token unregistered',
+      unregistered: result.deletedCount > 0,
+    };
+  }
+
+  /**
+   * Fetch all registered FCM tokens for a set of users
+   */
+  async getTokensForUsers(userIds: string[]): Promise<string[]> {
+    if (userIds.length === 0) return [];
+    const objectIds = userIds.map((id) => new Types.ObjectId(id));
+    const tokens = await this.deviceTokenModel
+      .find({ userId: { $in: objectIds } })
+      .select('token')
+      .lean();
+    return tokens.map((t) => t.token);
+  }
+
+  // ============================================================
+  // HELPER: Send FCM push notification(s)
+  // ============================================================
+
+  /**
+   * Send FCM push notifications to the registered device tokens
+   * of the given users. Safe no-op if Firebase isn't configured.
+   */
+  private async sendPushNotification(
+    userIds: string[],
+    payload: { title: string; body: string; data?: Record<string, string> },
+  ): Promise<void> {
+    try {
+      if (!this.firebaseService.isConfigured()) return;
+      const tokens = await this.getTokensForUsers(userIds);
+      if (tokens.length === 0) return;
+      await this.firebaseService.sendToTokens(tokens, payload);
+      this.logger.log(
+        `📲 Push notification sent to ${tokens.length} device(s)`,
+      );
+    } catch (error) {
+      this.logger.warn(`Push notification failed: ${error}`);
+    }
+  }
+
+  private buildPushData(
+    type: string,
+    data: Record<string, any>,
+    notificationId: string,
+  ): Record<string, string> {
+    const result: Record<string, string> = { type };
+    if (notificationId) result['notificationId'] = notificationId;
+    for (const [key, value] of Object.entries(data || {})) {
+      if (value === null || value === undefined) continue;
+      result[key] = typeof value === 'string' ? value : JSON.stringify(value);
+    }
+    return result;
   }
 }

@@ -173,3 +173,22 @@ export class SocketNotificationPayload {
   createdAt: Date;
   isRead: boolean;
 }
+
+// ============================================================
+// 7. DEVICE TOKEN DTO
+// Used when: Client registers/unregisters FCM push token
+// ============================================================
+
+export class RegisterDeviceTokenDto {
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+
+  @IsString()
+  @IsOptional()
+  platform?: string;
+
+  @IsString()
+  @IsOptional()
+  deviceName?: string;
+}

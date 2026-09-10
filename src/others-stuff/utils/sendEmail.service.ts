@@ -1,12 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class EmailService {
-  private readonly transporter: nodemailer.Transporter<SMTPTransport.SentMessageInfo>;
+  private readonly logger = new Logger(EmailService.name);
+  private readonly transporter: nodemailer.Transporter<SMTPTransport.SentMessageInfo> | null;
   private readonly from: string;
+  private readonly isConfigured: boolean;
 
   constructor(private readonly configService: ConfigService) {
     const user = this.configService.get<string>('EMAIL_USER')?.trim();
@@ -17,9 +19,14 @@ export class EmailService {
       ?.replace(/\s+/g, '');
 
     if (!user || !pass) {
-      throw new Error('EMAIL_USER and EMAIL_PASS must be configured');
+      this.logger.warn('EMAIL_USER and EMAIL_PASS not configured. Email sending will be skipped.');
+      this.isConfigured = false;
+      this.transporter = null;
+      this.from = '';
+      return;
     }
 
+    this.isConfigured = true;
     this.from = `"GIC" <${user}>`;
     this.transporter = nodemailer.createTransport(<SMTPTransport.Options>{
       service: 'gmail',
@@ -31,6 +38,10 @@ export class EmailService {
   }
 
   async sendEmail(to: string, subject: string, html: string): Promise<void> {
+    if (!this.isConfigured || !this.transporter) {
+      this.logger.warn(`Skipping email to ${to}: EMAIL_* env vars not configured`);
+      return;
+    }
     await this.transporter.sendMail({
       from: this.from,
       to,
