@@ -33,6 +33,8 @@ import {
 } from './notification.dto';
 import { NotificationGateway } from './notification.gateway';
 import { FirebaseService } from './firebase.service';
+import { SettingsService } from 'src/settings/settings.service';
+import { User, UserDocument } from 'src/user/schema/user.schema';
 
 @Injectable()
 export class NotificationService {
@@ -47,11 +49,18 @@ export class NotificationService {
     @InjectModel(DeviceToken.name)
     private deviceTokenModel: Model<DeviceTokenDocument>,
 
+    // Inject User model to fetch all recipients for broadcasts
+    @InjectModel(User.name)
+    private userModel: Model<UserDocument>,
+
     // Inject the Socket.io gateway for real-time events
     private notificationGateway: NotificationGateway,
 
     // Inject Firebase service for FCM push notifications
     private firebaseService: FirebaseService,
+
+    // Inject settings for the global push-notifications toggle
+    private settingsService: SettingsService,
   ) {}
 
   // ============================================================
@@ -153,6 +162,40 @@ export class NotificationService {
     });
 
     return result.length;
+  }
+
+  // ============================================================
+  // BROADCAST ALERT (To ALL users)
+  // ============================================================
+
+  /**
+   * Send an alert to every registered user (students, teachers, HODs).
+   * Used by admin via the "Send Alert" tool.
+   */
+  async sendAlertToAll(
+    sender: { senderId: string; senderName: string; senderRole: string },
+    title: string,
+    message: string,
+  ): Promise<number> {
+    const users = await this.userModel.find({}, { _id: 1 }).lean();
+    const userIds = users.map((u) => u._id.toString());
+
+    if (userIds.length === 0) {
+      this.logger.warn('No users found to send alert');
+      return 0;
+    }
+
+    return this.createBulk({
+      userIds,
+      senderId: sender.senderId,
+      senderName: sender.senderName,
+      senderRole: sender.senderRole,
+      type: 'general',
+      title,
+      message,
+      data: { notification_type: '16' },
+      classNames: [],
+    });
   }
 
   // ============================================================
@@ -579,6 +622,19 @@ export class NotificationService {
   ): Promise<void> {
     try {
       if (!this.firebaseService.isConfigured()) return;
+
+      // Global master toggle: admin OFF kar de to FCM push skip, in-app/socket still chalta hai
+      const pushEnabled = await this.settingsService.getSetting(
+        'push-notifications',
+        true,
+      );
+      if (pushEnabled === false) {
+        this.logger.log(
+          'Push notifications disabled by admin. Skipping FCM send.',
+        );
+        return;
+      }
+
       const tokens = await this.getTokensForUsers(userIds);
       if (tokens.length === 0) return;
       await this.firebaseService.sendToTokens(tokens, payload);

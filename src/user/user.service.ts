@@ -303,6 +303,29 @@ const failed: {
     return this.paginatedResponse(sanitizedUsers, total, pagination.page, pagination.limit, 'users');
   }
 
+  async getActiveToday() {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const users = await this.userModel
+      .find({ lastLoginAt: { $gte: startOfToday } })
+      .sort({ lastLoginAt: -1 })
+      .lean()
+      .select({
+        name: 1,
+        lastName: 1,
+        email: 1,
+        specialId: 1,
+        role: 1,
+        gender: 1,
+        shift: 1,
+        lastLoginAt: 1,
+        image: 1,
+      });
+
+    return users.map((user) => this.removeNull(user));
+  }
+
   private removeNull(obj){
     for (const key in obj) {
     if (obj[key] === null) {

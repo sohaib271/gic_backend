@@ -2,16 +2,15 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { RemarksController } from './remarks.controller';
-import { RemarksService } from './remarks.service';
-import { Remark, RemarkSchema } from './schema/remark.schema';
+import { SettingsController } from './settings.controller';
+import { SettingsService } from './settings.service';
+import { Setting, SettingSchema } from './schema/setting.schema';
 import { User, UserSchema } from '../user/schema/user.schema';
-import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: Remark.name, schema: RemarkSchema },
+      { name: Setting.name, schema: SettingSchema },
       { name: User.name, schema: UserSchema },
     ]),
     JwtModule.registerAsync({
@@ -22,10 +21,9 @@ import { NotificationModule } from 'src/notification/notification.module';
         signOptions: { expiresIn: '7d' },
       }),
     }),
-    NotificationModule,
   ],
-  controllers: [RemarksController],
-  providers: [RemarksService],
-  exports: [RemarksService],
+  controllers: [SettingsController],
+  providers: [SettingsService],
+  exports: [SettingsService],
 })
-export class RemarksModule {}
+export class SettingsModule {}

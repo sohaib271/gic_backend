@@ -32,6 +32,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { AuthGuard } from '../others-stuff/guards/jwt-auth.guard';
+import { AdminGuard } from '../others-stuff/guards/admin.guard';
 import { NotificationService } from './notification.service';
 import {
   CreateNotificationDto,
@@ -53,6 +54,36 @@ export class NotificationController {
   async registerDeviceToken(@Request() req, @Body() body: RegisterDeviceTokenDto) {
     const userId = req.user.sub;
     return this.notificationService.registerDeviceToken(userId, body);
+  }
+
+  // ============================================================
+  // POST /notifications/alert
+  // Broadcast an alert to ALL users (admin only)
+  // ============================================================
+
+  @Post('alert')
+  @UseGuards(AdminGuard)
+  async sendAlert(
+    @Request() req,
+    @Body() body: { title?: string; message?: string },
+  ) {
+    const title = (body?.title || '').trim();
+    const message = (body?.message || '').trim();
+    if (!title || !message) {
+      return { success: false, message: 'Title and message are required' };
+    }
+
+    const recipients = await this.notificationService.sendAlertToAll(
+      {
+        senderId: req.user.sub,
+        senderName: 'Admin',
+        senderRole: req.user.role,
+      },
+      title,
+      message,
+    );
+
+    return { success: true, recipients };
   }
 
   // ============================================================

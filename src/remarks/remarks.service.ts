@@ -1,14 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Remark, RemarkDocument, RemarkEntityType } from './schema/remark.schema';
 import { User, UserDocument } from '../user/schema/user.schema';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class RemarksService {
+  private logger = new Logger('RemarksService');
+
   constructor(
     @InjectModel(Remark.name) private remarkModel: Model<RemarkDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private notificationService: NotificationService,
   ) {}
 
   async createRemark(
@@ -34,7 +38,32 @@ export class RemarksService {
       text: text || '',
     });
 
-    return remark.save();
+    const saved = await remark.save();
+
+    // Notify the student when a remark is created on their record.
+    // Mobile opens RemarksScreen when data.notification_type === '13'.
+    if (!isGeneral && entityType === RemarkEntityType.STUDENT) {
+      this.notificationService
+        .create({
+          userId: entityId,
+          senderId: userId,
+          senderName: user.name,
+          senderRole: user.role,
+          type: 'general',
+          title: 'New Remark',
+          message: text?.trim() || 'You have a new remark',
+          data: {
+            notification_type: '13',
+            entityType,
+            entityId,
+            authorName: user.name,
+          },
+          classNames: [],
+        })
+        .catch((err) => this.logger.error(`Remark notification failed: ${err}`));
+    }
+
+    return saved;
   }
 
   async getRemarksByEntity(entityType: RemarkEntityType, entityId: string) {

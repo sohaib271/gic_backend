@@ -380,27 +380,30 @@ export class FeeService {
 
     // Send notifications to students who got a fee created
     if (createdRecords.length > 0) {
-      const feeIds = createdRecords.map((f) => f._id.toString());
-      this.notificationService
-        .createBulk({
-          userIds: createdRecords.map((f) => f.studentId.toString()),
-          senderId: actor?._id || '',
-          senderName: actor?.name || 'Admin',
-          senderRole: actor?.role || 'admin',
-          type: 'class',
-          title: 'Fee Generated',
-          message: `${month} ${year} fee of PKR ${amount} has been generated. Due date: ${dto.dueDate || 'N/A'}`,
-          data: {
-            type: 'fee',
-            feeIds,
-            month,
-            year: String(year),
-            amount: String(amount),
-          },
-          classNames: className ? [className] : [],
-        })
-        .then(() => this.logger.log(`🔔 Fee notifications sent to ${createdRecords.length} students`))
-        .catch((err) => this.logger.error(`Fee notification failed: ${err}`));
+      for (const fee of createdRecords) {
+        this.notificationService
+          .create({
+            userId: fee.studentId.toString(),
+            senderId: actor?._id || '',
+            senderName: actor?.name || 'Admin',
+            senderRole: actor?.role || 'admin',
+            type: 'general',
+            title: 'Fee Generated',
+            message: `${month} ${year} fee of PKR ${amount} has been generated. Due date: ${dto.dueDate || 'N/A'}`,
+            data: {
+              notification_type: '15',
+              feeId: fee._id.toString(),
+              studentId: fee.studentId.toString(),
+              month,
+              year,
+              amount,
+              status: FeeStatusEnum.PENDING,
+            },
+            classNames: className ? [className] : [],
+          })
+          .catch((err) => this.logger.error(`Fee notification failed: ${err}`));
+      }
+      this.logger.log(`🔔 Fee notifications sent to ${createdRecords.length} students`);
     }
 
     return {
@@ -499,10 +502,18 @@ export class FeeService {
           senderId: actor?._id || '',
           senderName: actor?.name || 'Admin',
           senderRole: actor?.role || 'admin',
-          type: 'class',
+          type: 'general',
           title: 'Fee Paid',
           message: `Your ${fee.month} ${fee.year} fee of PKR ${fee.amount} has been marked as paid.`,
-          data: { type: 'fee', feeId: fee._id.toString(), amount: String(fee.amount) },
+          data: {
+            notification_type: '15',
+            feeId: fee._id.toString(),
+            studentId: fee.studentId.toString(),
+            month: fee.month,
+            year: fee.year,
+            amount: fee.amount,
+            status: fee.status,
+          },
           classNames: fee.className ? [fee.className] : [],
         })
         .catch((err) => this.logger.error(`Fee payment notification failed: ${err}`));

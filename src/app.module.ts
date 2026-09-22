@@ -14,6 +14,8 @@ import { AnnouncementModule } from './announcement/announcement.module';
 import { NotificationModule } from './notification/notification.module';
 import { RemarksModule } from './remarks/remarks.module';
 import { FeeModule } from './fee/fee.module';
+import { LeaveTypesModule } from './leave-types/leave-types.module';
+import { SettingsModule } from './settings/settings.module';
 dns.setServers(["1.1.1.1","8.8.8.8"]);
 
 @Module({
@@ -42,6 +44,8 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
     NotificationModule,
     RemarksModule,
     FeeModule,
+    LeaveTypesModule,
+    SettingsModule,
   ],
   controllers: [],
   providers: [

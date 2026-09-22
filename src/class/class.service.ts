@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Class, ClassDocument } from './schema/class.schema';
 import mongoose, { Model, Types } from 'mongoose';
@@ -7,10 +7,12 @@ import { AssignedTeacherDto } from './dto/assignes.dto';
 import { User, UserDocument } from 'src/user/schema/user.schema';
 import { UpdateClassDto } from './dto/updateClass.dto';
 import { StruckOff, StruckOffDocument } from './schema/struckoff.schema';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class ClassService {
-  constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>, @InjectModel(StruckOff.name)private struckOffModel:Model<StruckOffDocument>){}
+  private logger = new Logger('ClassService');
+  constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>, @InjectModel(StruckOff.name)private struckOffModel:Model<StruckOffDocument>, private notificationService: NotificationService){}
 
 
   // ✅ Parse date safely as UTC calendar date
@@ -321,7 +323,7 @@ async addTeacherSchedule(
     // 1. Fetch and validate existing data in parallel
     let [student, cls, existingRecord] = await Promise.all([
       this.userModel.exists({ _id: studentObjectId, role: 'student' }),
-      this.classModel.findById(classObjectId, { classStudents: 1 }).lean(),
+      this.classModel.findById(classObjectId, { classStudents: 1, className: 1 }).lean(),
       this.struckOffModel.findOne({ studentId: studentObjectId }).lean(),
     ]);
 
@@ -329,7 +331,7 @@ async addTeacherSchedule(
     if (!student || !cls) {
       const [swappedStudent, swappedClass, swappedRecord] = await Promise.all([
         this.userModel.exists({ _id: classObjectId, role: 'student' }),
-        this.classModel.findById(studentObjectId, { classStudents: 1 }).lean(),
+        this.classModel.findById(studentObjectId, { classStudents: 1, className: 1 }).lean(),
         this.struckOffModel.findOne({ studentId: classObjectId }).lean(),
       ]);
 
@@ -390,6 +392,55 @@ async addTeacherSchedule(
         { $set: { struckOff: true } }
       ),
     ]);
+
+    // 🔔 Notify the struck-off student (informational, mobile shows default detail)
+    const reason = dto.reason.trim();
+    const className = (cls as any)?.className ?? 'your class';
+
+    this.notificationService
+      .create({
+        userId: studentObjectId.toString(),
+        senderId: actionBy,
+        senderName: 'Admin',
+        senderRole: 'admin',
+        type: 'general',
+        title: 'Struck Off',
+        message: `You have been struck off from ${className}. Reason: ${reason}`,
+        data: {
+          classId,
+          className,
+          reason,
+        },
+        classNames: [],
+      })
+      .catch((err) => this.logger.error(`Struck-off student notification failed: ${err}`));
+
+    // 🔔 Notify admin/hod/proff (their StruckOffStudentsScreen can open this list)
+    const staff = await this.userModel
+      .find({ role: { $in: ['admin', 'hod', 'proff'] } })
+      .select('_id')
+      .lean();
+
+    if (staff.length > 0) {
+      this.notificationService
+        .createBulk({
+          userIds: staff.map((s) => s._id.toString()),
+          senderId: actionBy,
+          senderName: 'Admin',
+          senderRole: 'admin',
+          type: 'general',
+          title: 'Student Struck Off',
+          message: `A student has been struck off from ${className}. Reason: ${reason}`,
+          data: {
+            notification_type: '1',
+            classId,
+            className,
+            reason,
+          },
+          classNames: [className],
+        })
+        .catch((err) => this.logger.error(`Struck-off staff notification failed: ${err}`));
+    }
 
     return {
       message: 'Student has been struck off successfully',

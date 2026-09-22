@@ -2,16 +2,15 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { RemarksController } from './remarks.controller';
-import { RemarksService } from './remarks.service';
-import { Remark, RemarkSchema } from './schema/remark.schema';
+import { LeaveTypesController } from './leave-types.controller';
+import { LeaveTypesService } from './leave-types.service';
+import { LeaveType, LeaveTypeSchema } from './schema/leave-type.schema';
 import { User, UserSchema } from '../user/schema/user.schema';
-import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: Remark.name, schema: RemarkSchema },
+      { name: LeaveType.name, schema: LeaveTypeSchema },
       { name: User.name, schema: UserSchema },
     ]),
     JwtModule.registerAsync({
@@ -22,10 +21,9 @@ import { NotificationModule } from 'src/notification/notification.module';
         signOptions: { expiresIn: '7d' },
       }),
     }),
-    NotificationModule,
   ],
-  controllers: [RemarksController],
-  providers: [RemarksService],
-  exports: [RemarksService],
+  controllers: [LeaveTypesController],
+  providers: [LeaveTypesService],
+  exports: [LeaveTypesService],
 })
-export class RemarksModule {}
+export class LeaveTypesModule {}

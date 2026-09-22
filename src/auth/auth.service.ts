@@ -1,6 +1,7 @@
 import {
   Injectable,
   UnauthorizedException,
+  ForbiddenException,
   BadRequestException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -156,6 +157,31 @@ export class AuthService {
   }
 
   /* ======================
+     CHANGE PASSWORD (LOGGED IN)
+  ======================= */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.userModel.findById(userId).select('password');
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const match = await bcrypt.compare(currentPassword, user.password);
+    if (!match) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('New password must be different from current password');
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.verifyToken = undefined;
+    await user.save();
+
+    return { message: 'Password changed successfully' };
+  }
+
+  /* ======================
      QR VERIFY
   ======================= */
   // async verifyQrToken(token: string) {
@@ -196,9 +222,17 @@ export class AuthService {
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) throw new UnauthorizedException('Invalid credentials');
+
+    // Block disabled (deactivated) accounts
+    if (user.isActive === false) {
+      throw new ForbiddenException(
+        'Your account is disabled. Please contact the administration.',
+      );
+    }
     const res=this.signToken(user);
     response.cookie('access_token', res.access_token, this.getAccessTokenCookieOptions());
     user.verifyToken=res.access_token;
+    user.lastLoginAt = new Date();
     await user.save();
     return res;
   }

@@ -79,6 +79,7 @@ export class AnnouncementService {
       .sort({ createdAt: -1 })
       .populate({ path: 'teacherId', select: 'name' })
       .populate({ path: 'createdBy', select: 'name role' })
+      .populate({ path: 'readBy', select: 'name lastName specialId' })
       .lean();
 
     // Always return results if found, regardless of user role
@@ -91,9 +92,10 @@ export class AnnouncementService {
     // Read status will be marked only when user opens the detail screen
     if (userId) {
       announcements = announcements.map((a: any) => {
-        const isRead = (a.readBy || []).some(
-          (id: Types.ObjectId) => id.toString() === userId,
-        );
+        const isRead = (a.readBy || []).some((entry: any) => {
+          const entryId = entry?._id ?? entry;
+          return entryId?.toString?.() === userId;
+        });
         return { ...a, isRead };
       });
     }
@@ -103,15 +105,17 @@ export class AnnouncementService {
 
   async createAnnouncement(dto: CreateAnnouncementDto, createdBy: string, creatorRole: string) {
     try {
-      this.validateObjectId(dto.teacherId, 'Invalid teacher ID');
+      // Admin panel se aayi announcement → teacherId = creator (admin) id
+      const teacherId = dto.teacherId || createdBy;
+      this.validateObjectId(teacherId, 'Invalid teacher ID');
       this.validateObjectId(createdBy, 'Invalid creator ID');
 
-      // Validate teacher ID exists
-      const teacher = await this.userModel
-        .findById(dto.teacherId)
-        .lean();
-      if (!teacher) {
-        throw new BadRequestException('Invalid teacher');
+      // Validate teacher ID exists (only when explicitly provided)
+      if (dto.teacherId) {
+        const teacher = await this.userModel.findById(dto.teacherId).lean();
+        if (!teacher) {
+          throw new BadRequestException('Invalid teacher');
+        }
       }
 
       // Get creator's info for notifications
@@ -121,7 +125,7 @@ export class AnnouncementService {
       }
 
       const announcement = new this.announcementModel({
-        teacherId: new Types.ObjectId(dto.teacherId),
+        teacherId: new Types.ObjectId(teacherId),
         classNames: Array.isArray(dto.className) ? dto.className : [dto.className],
         title: dto.title,
         description: dto.description,

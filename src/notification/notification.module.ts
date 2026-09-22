@@ -24,12 +24,15 @@ import { DeviceToken, DeviceTokenSchema } from './device-token.schema';
 import { FirebaseService } from './firebase.service';
 import { User, UserSchema } from 'src/user/schema/user.schema';
 import { AuthModule } from 'src/auth/auth.module';
+import { SettingsModule } from 'src/settings/settings.module';
 
 @Module({
   imports: [
     // AuthModule is needed because AuthGuard (JWT) requires UserModel
     AuthModule,
     ConfigModule,
+    // Settings for push-notifications master toggle
+    SettingsModule,
     // Register the Notification schema with MongoDB
     MongooseModule.forFeature([
       { name: Notification.name, schema: NotificationSchema },

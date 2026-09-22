@@ -76,6 +76,9 @@ export class User {
   @Prop({ default: false })
   isQrScanned?: boolean;
 
+  @Prop({ type: Date, default: null })
+  lastLoginAt?: Date | null;
+
   /* =======================
      STUDENT FIELDS
   ======================== */

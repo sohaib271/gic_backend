@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { AttendenceService } from './attendence.service';
@@ -93,6 +94,13 @@ export class AttendenceController {
     @Query('limit') limit?: string,
   ) {
     return this.attendenceService.getMyAttendanceHistory(teacherId, classId, Number(page), Number(limit));
+  }
+
+  @Get('student-progress/:studentId')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'proff')
+  getStudentProgress(@Param('studentId') studentId: string, @Req() req: any) {
+    return this.attendenceService.getStudentProgress(studentId, req.user);
   }
 
   @Get('class/:classId/by-teacher')

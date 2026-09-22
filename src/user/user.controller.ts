@@ -95,6 +95,12 @@ bulkUploadStudents(
   return this.userService.bulkUploadStudents(file);
 }
 
+  @Get('active-today')
+  @UseGuards(AdminGuard)
+  getActiveToday() {
+    return this.userService.getActiveToday();
+  }
+
   @Get(':id')
   getUserById(@Param('id') id: string) {
     return this.userService.getUserById(id);

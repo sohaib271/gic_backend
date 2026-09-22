@@ -1,5 +1,5 @@
 // auth.controller.ts
-import { Controller, Post, Body, Param, Get, Res } from '@nestjs/common';
+import { Controller, Post, Body, Param, Get, Res, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AdminLoginDto } from './auth.dto/admin-login.dto';
@@ -8,6 +8,8 @@ import {
   ResetPasswordDto,
   VerifyOtpDto,
 } from './auth.dto/password-reset.dto';
+import { ChangePasswordDto } from './auth.dto/change-password.dto';
+import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -34,6 +36,17 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 15 * 60_000 } })
   forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgetPassword(dto.email);
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('change-password')
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
+  changePassword(@Body() dto: ChangePasswordDto, @Req() req: any) {
+    return this.authService.changePassword(
+      req.user.sub,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 
   @Post('verify-otp')
