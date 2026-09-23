@@ -502,6 +502,41 @@ export class NotificationService {
     });
   }
 
+  /**
+   * Send an FCM push ONLY for a chat message.
+   * NOTE: Does NOT create a DB notification record, so it never shows up
+   * in the in-app "All Notifications" list. The chat UI handles its own
+   * real-time events via the /chat socket.
+   */
+  async sendChatPush(dto: {
+    receiverId: string;
+    senderId: string;
+    senderName: string;
+    senderRole?: string;
+    conversationId: string;
+    messageText: string;
+  }): Promise<void> {
+    const message = dto.messageText?.trim() || '';
+    const body =
+      message.length > 100
+        ? `${message.slice(0, 100)}…`
+        : message || 'You have a new message';
+
+    await this.sendPushNotification([dto.receiverId], {
+      title: dto.senderName || 'New message',
+      body,
+      data: {
+        type: 'chat',
+        senderId: dto.senderId,
+        senderName: dto.senderName || '',
+        senderRole: dto.senderRole || '',
+        conversationId: dto.conversationId,
+      },
+    });
+
+    this.logger.log(`💬 Chat push sent to user ${dto.receiverId}`);
+  }
+
   // ============================================================
   // HELPER: Send Real-time notification via Socket.io
   // ============================================================

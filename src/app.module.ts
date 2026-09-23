@@ -17,6 +17,7 @@ import { FeeModule } from './fee/fee.module';
 import { LeaveTypesModule } from './leave-types/leave-types.module';
 import { SettingsModule } from './settings/settings.module';
 import { SurveyModule } from './survey/survey.module';
+import { ChatModule } from './chat/chat.module';
 dns.setServers(["1.1.1.1","8.8.8.8"]);
 
 @Module({
@@ -48,6 +49,7 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
     LeaveTypesModule,
     SettingsModule,
     SurveyModule,
+    ChatModule,
   ],
   controllers: [],
   providers: [
