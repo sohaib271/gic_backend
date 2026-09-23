@@ -341,7 +341,11 @@ export class TeacherService {
     ]);
 
     if (!records || records.length === 0) {
-      throw new NotFoundException('No attendance records found');
+      return {
+        success: true,
+        records: [],
+        ...(shouldPaginate ? this.paginationMeta(0, pagination.page, pagination.limit) : { total: 0 }),
+      };
     }
 
     return {
@@ -375,9 +379,11 @@ export class TeacherService {
     ]);
 
     if (!attendanceRecords || attendanceRecords.length === 0) {
-      throw new NotFoundException(
-        'No attendance records found for this teacher',
-      );
+      return {
+        success: true,
+        attendanceRecords: [],
+        ...(shouldPaginate ? this.paginationMeta(0, pagination.page, pagination.limit) : { total: 0 }),
+      };
     }
 
     return {
@@ -411,7 +417,11 @@ export class TeacherService {
     ]);
 
     if (!attendanceRecords || attendanceRecords.length === 0) {
-      throw new NotFoundException('No attendance record exist');
+      return {
+        success: true,
+        attendanceRecords: [],
+        ...(shouldPaginate ? this.paginationMeta(0, pagination.page, pagination.limit) : { total: 0 }),
+      };
     }
 
     return {

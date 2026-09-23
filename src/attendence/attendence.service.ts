@@ -648,7 +648,13 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
     }
 
     const [attendance] = await this.attendenceModel.aggregate([
-      { $match: { studentId: new Types.ObjectId(studentId) } },
+      {
+        $match: {
+          studentId: {
+            $in: [studentId, new Types.ObjectId(studentId)],
+          },
+        },
+      },
       {
         $group: {
           _id: null,

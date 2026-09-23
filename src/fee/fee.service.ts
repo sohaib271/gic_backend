@@ -153,7 +153,9 @@ export class FeeService {
 
     const studentFilter: any = {
       role: 'student',
-      department: new Types.ObjectId(departmentId),
+      department: {
+        $in: [departmentId, new Types.ObjectId(departmentId)],
+      },
       ...searchFilter,
     };
 
@@ -288,7 +290,10 @@ export class FeeService {
     this.validateObjectId(departmentId, 'Invalid department ID');
 
     const students = await this.userModel
-      .find({ role: 'student', department: new Types.ObjectId(departmentId) })
+      .find({
+      role: 'student',
+      department: { $in: [departmentId, new Types.ObjectId(departmentId)] },
+    })
       .select('_id department')
       .lean();
 

@@ -98,7 +98,7 @@ export class AttendenceController {
 
   @Get('student-progress/:studentId')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'proff')
+  @Roles('admin', 'proff', 'hod')
   getStudentProgress(@Param('studentId') studentId: string, @Req() req: any) {
     return this.attendenceService.getStudentProgress(studentId, req.user);
   }
