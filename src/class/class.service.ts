@@ -112,6 +112,18 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
     });
 
     await newClass.save();
+
+    // 🔔 Notify admin/hod/principal about the new class
+    this.getSenderInfo(createdBy).then((actor) => {
+      this.notifyStaff(
+        actor,
+        'Class Created',
+        `New class ${newClass.className} has been created.`,
+        { classId: newClass._id.toString(), className: newClass.className },
+        newClass.className,
+      );
+    }).catch((err) => this.logger.error(`Class created notification failed: ${err}`));
+
     return { message: 'Class created successfully', newClass };
 
   } catch (error) {
@@ -176,7 +188,7 @@ async getAssignedTeacherList(classId:string){
 
 
 
-  async addTeacherInClass(dto: AssignedTeacherDto, classId: string) {
+  async addTeacherInClass(dto: AssignedTeacherDto, classId: string, actionBy: string) {
   const classTeachers = await this.checkTeachers(classId, dto.teacherId);
   const isExistInClass = classTeachers?.find(
     (teacher) =>
@@ -187,6 +199,12 @@ async getAssignedTeacherList(classId:string){
   if (isExistInClass) {
     throw new ConflictException("Teacher already exists");
   }
+
+  const [cls, teacher, actor] = await Promise.all([
+    this.classModel.findById(classId).select('className').lean(),
+    this.userModel.findById(dto.teacherId).select('name lastName').lean(),
+    this.getSenderInfo(actionBy),
+  ]);
 
   await this.classModel.findByIdAndUpdate(
     { _id: classId },
@@ -202,10 +220,46 @@ async getAssignedTeacherList(classId:string){
     { new: true }
   );
 
+  const className = (cls as any)?.className ?? 'Class';
+  const teacherName = teacher
+    ? [teacher.name, teacher.lastName].filter(Boolean).join(' ')
+    : 'Teacher';
+
+  // 🔔 Notify the assigned teacher
+  this.notificationService
+    .create({
+      userId: dto.teacherId,
+      ...actor,
+      type: 'class',
+      title: 'Class Assigned',
+      message: dto.subject
+        ? `You have been assigned to teach ${dto.subject} in ${className}.`
+        : `You have been assigned to teach ${className}.`,
+      data: {
+        classId,
+        className: className,
+        ...(dto.subject ? { subject: dto.subject } : {}),
+      },
+      classNames: [className],
+    })
+    .catch((err) => this.logger.error(`Teacher assigned notification failed: ${err}`));
+
+  // 🔔 Notify admin/hod/principal
+  this.notifyStaff(
+    actor,
+    'Teacher Added to Class',
+    `${teacherName} has been added to teach ${
+      dto.subject ? `${dto.subject} in ` : ''
+    }${className}.`,
+    { classId, className: className },
+    className,
+    dto.teacherId,
+  );
+
   return { message: "Teacher assigned successfully" };
 }
 
-async updateTeacherSchedule(classId: string, teacherId: string, schedule: { day: string; startTime: string; endTime: string }[]) {
+async updateTeacherSchedule(classId: string, teacherId: string, schedule: { day: string; startTime: string; endTime: string }[], actionBy: string) {
   const classTeachers = await this.checkTeachers(classId, teacherId);
   
   const teacherIndex = classTeachers?.findIndex(
@@ -231,13 +285,40 @@ async updateTeacherSchedule(classId: string, teacherId: string, schedule: { day:
     { new: true }
   );
 
+  const className = ((await this.classModel.findById(classId).select('className').lean()) as any)?.className ?? 'Class';
+  const actor = await this.getSenderInfo(actionBy);
+
+  // 🔔 Notify the teacher
+  this.notificationService
+    .create({
+      userId: teacherId,
+      ...actor,
+      type: 'class',
+      title: 'Schedule Updated',
+      message: `Your schedule for ${className} has been updated.`,
+      data: { classId, className: className },
+      classNames: [className],
+    })
+    .catch((err) => this.logger.error(`Teacher schedule notification failed: ${err}`));
+
+  // 🔔 Notify admin/hod/principal
+  this.notifyStaff(
+    actor,
+    'Teacher Schedule Updated',
+    `A teacher's schedule has been updated in ${className}.`,
+    { classId, className: className },
+    className,
+    teacherId,
+  );
+
   return { message: "Schedule updated successfully" };
 }
 
 async addTeacherSchedule(
   classId: string,
   teacherId: string,
-  schedule: { day: string; startTime: string; endTime: string }[]
+  schedule: { day: string; startTime: string; endTime: string }[],
+  actionBy: string,
 ) {
   const classTeachers = await this.checkTeachers(classId, teacherId);
 
@@ -277,30 +358,125 @@ async addTeacherSchedule(
     { new: true }
   );
 
+  const className = ((await this.classModel.findById(classId).select('className').lean()) as any)?.className ?? 'Class';
+  const actor = await this.getSenderInfo(actionBy);
+
+  // 🔔 Notify the teacher
+  this.notificationService
+    .create({
+      userId: teacherId,
+      ...actor,
+      type: 'class',
+      title: 'Schedule Updated',
+      message: `New schedule has been added for your classes in ${className}.`,
+      data: { classId, className: className },
+      classNames: [className],
+    })
+    .catch((err) => this.logger.error(`Teacher schedule notification failed: ${err}`));
+
+  // 🔔 Notify admin/hod/principal
+  this.notifyStaff(
+    actor,
+    'Teacher Schedule Added',
+    `New schedule entries have been added in ${className}.`,
+    { classId, className: className },
+    className,
+    teacherId,
+  );
+
   return { message: "Schedule entries added successfully" };
 }
 
-  async addStudentInClass(classId:string,studentId:string){
+  async addStudentInClass(classId:string,studentId:string,actionBy:string){
     const allStudents=await this.checkStudents(classId,studentId);
     const isExists=allStudents?.find(student=>student.toString()===studentId);
     if(isExists){
       throw new ConflictException("Student already exists");
     }
 
+    const [cls, student, actor] = await Promise.all([
+      this.classModel.findById(classId).select('className').lean(),
+      this.userModel.findById(studentId).select('name lastName').lean(),
+      this.getSenderInfo(actionBy),
+    ]);
+
     await this.classModel.findByIdAndUpdate(classId,{$addToSet:{classStudents:studentId}},{new:false});
+
+    const className = (cls as any)?.className ?? 'Class';
+    const studentName = student
+      ? [student.name, student.lastName].filter(Boolean).join(' ')
+      : 'A student';
+
+    // 🔔 Notify the student
+    this.notificationService
+      .create({
+        userId: studentId,
+        ...actor,
+        type: 'class',
+        title: 'Added to Class',
+        message: `You have been added to ${className}.`,
+        data: { classId, className: className },
+        classNames: [className],
+      })
+      .catch((err) => this.logger.error(`Student added notification failed: ${err}`));
+
+    // 🔔 Notify admin/hod/principal
+    this.notifyStaff(
+      actor,
+      'Student Added to Class',
+      `${studentName} has been added to ${className}.`,
+      { classId, className: className },
+      className,
+      studentId,
+    );
 
     return {
       message:"Student added successfully"
     }
   }
 
-  async removeStudentFromClass(classId:string,studentId:string){
+  async removeStudentFromClass(classId:string,studentId:string,actionBy:string){
     const allStudents=await this.checkStudents(classId,studentId);
     const isExists=allStudents?.find(student=>student.toString()===studentId);
     if(!isExists){
       throw new ConflictException("Student doesn't exist");
     }
+
+    const [cls, student, actor] = await Promise.all([
+      this.classModel.findById(classId).select('className').lean(),
+      this.userModel.findById(studentId).select('name lastName').lean(),
+      this.getSenderInfo(actionBy),
+    ]);
+
     await this.classModel.findByIdAndUpdate(classId,{$pull:{classStudents:isExists}},{new:false});
+
+    const className = (cls as any)?.className ?? 'Class';
+    const studentName = student
+      ? [student.name, student.lastName].filter(Boolean).join(' ')
+      : 'A student';
+
+    // 🔔 Notify the student
+    this.notificationService
+      .create({
+        userId: studentId,
+        ...actor,
+        type: 'class',
+        title: 'Removed from Class',
+        message: `You have been removed from ${className}.`,
+        data: { classId, className: className },
+        classNames: [className],
+      })
+      .catch((err) => this.logger.error(`Student removed notification failed: ${err}`));
+
+    // 🔔 Notify admin/hod/principal
+    this.notifyStaff(
+      actor,
+      'Student Removed from Class',
+      `${studentName} has been removed from ${className}.`,
+      { classId, className: className },
+      className,
+      studentId,
+    );
 
     return {
       message:"Student has been removed from class",
@@ -578,6 +754,39 @@ async addTeacherSchedule(
       ),
     ]);
 
+    // 🔔 Notify the reinstated student
+    this.notificationService
+      .create({
+        userId: studentObjectId.toString(),
+        senderId: actionBy,
+        senderName: actor.name || 'Admin',
+        senderRole: actor.role || 'admin',
+        type: 'class',
+        title: 'Reinstated',
+        message: `You have been reinstated.${reason ? ` Reason: ${reason}` : ''}`,
+        data: {
+          studentId,
+          reason,
+        },
+        classNames: [],
+      })
+      .catch((err) => this.logger.error(`Reinstated student notification failed: ${err}`));
+
+    // 🔔 Notify admin/hod/principal
+    const reinstatedBy = {
+      senderId: actionBy,
+      senderName: actor.name || 'Admin',
+      senderRole: actor.role || 'admin',
+    };
+    this.notifyStaff(
+      reinstatedBy,
+      'Student Reinstated',
+      `A student has been reinstated.${reason ? ` Reason: ${reason}` : ''}`,
+      { studentId, reason },
+      undefined,
+      studentId,
+    );
+
     return {
       message:       'Student has been reinstated successfully',
       updatedRecord,
@@ -686,7 +895,7 @@ async addTeacherSchedule(
   }
 
 
-  async removeTeacherFromClass(classId:string,teacherId:string){
+  async removeTeacherFromClass(classId:string,teacherId:string,actionBy:string){
     const classTeachers=await this.checkTeachers(classId,teacherId);
     const isExistInClass=classTeachers?.find(teacher => teacher.teacherId.toString()===teacherId);
     
@@ -694,13 +903,47 @@ async addTeacherSchedule(
       throw new ConflictException("Teacher doesn't exist in class");
     }
 
+    const [cls, teacher, actor] = await Promise.all([
+      this.classModel.findById(classId).select('className').lean(),
+      this.userModel.findById(teacherId).select('name lastName').lean(),
+      this.getSenderInfo(actionBy),
+    ]);
+
     await this.classModel.findByIdAndUpdate(classId,{$pull:{assignes:{teacherId}}},{new:false});
+
+    const className = (cls as any)?.className ?? 'Class';
+    const teacherName = teacher
+      ? [teacher.name, teacher.lastName].filter(Boolean).join(' ')
+      : 'A teacher';
+
+    // 🔔 Notify the removed teacher
+    this.notificationService
+      .create({
+        userId: teacherId,
+        ...actor,
+        type: 'class',
+        title: 'Removed from Class',
+        message: `You have been removed from ${className}.`,
+        data: { classId, className: className },
+        classNames: [className],
+      })
+      .catch((err) => this.logger.error(`Teacher removed notification failed: ${err}`));
+
+    // 🔔 Notify admin/hod/principal
+    this.notifyStaff(
+      actor,
+      'Teacher Removed from Class',
+      `${teacherName} has been removed from ${className}.`,
+      { classId, className: className },
+      className,
+      teacherId,
+    );
 
     return {
       message:"Teacher removed",
     }
   }
-  async updateAssignedTeacher(classId: string, teacherId: string, dto: Partial<AssignedTeacherDto>) {
+  async updateAssignedTeacher(classId: string, teacherId: string, dto: Partial<AssignedTeacherDto>, actionBy: string) {
   const cls = await this.classModel.findById(classId);
   if (!cls) throw new NotFoundException("Class not found");
 
@@ -720,10 +963,40 @@ async addTeacherSchedule(
 
   cls.markModified("assignes"); // ✅ required for nested array updates
   await cls.save();
+
+  const actor = await this.getSenderInfo(actionBy);
+
+  // 🔔 Notify the teacher
+  this.notificationService
+    .create({
+      userId: teacherId,
+      ...actor,
+      type: 'class',
+      title: 'Assignment Updated',
+      message: `Your teaching assignment in ${cls.className} has been updated.`,
+      data: {
+        classId,
+        className: cls.className,
+        ...(dto.subject ? { subject: dto.subject } : {}),
+      },
+      classNames: [cls.className],
+    })
+    .catch((err) => this.logger.error(`Assignment update notification failed: ${err}`));
+
+  // 🔔 Notify admin/hod/principal
+  this.notifyStaff(
+    actor,
+    'Teacher Assignment Updated',
+    `A teacher's assignment has been updated in ${cls.className}.`,
+    { classId, className: cls.className },
+    cls.className,
+    teacherId,
+  );
+
   return { message: "Assignment updated successfully", class: cls };
 }
 
-  async updateClassCredentials(classId:string,dto:UpdateClassDto){
+  async updateClassCredentials(classId:string,dto:UpdateClassDto,actionBy:string){
       const updateData:any={};
       if(dto?.class!==undefined) updateData.class=dto.class;
       if(dto?.session!==undefined) updateData.session=dto.session;
@@ -732,7 +1005,20 @@ async addTeacherSchedule(
         throw new BadRequestException("Empty fields provided");
       }
 
+      const cls = await this.classModel.findById(classId).select('className').lean();
       await this.classModel.findByIdAndUpdate(classId,{$set:updateData},{new:false});
+
+      const className = (cls as any)?.className ?? 'Class';
+      const actor = await this.getSenderInfo(actionBy);
+
+      // 🔔 Notify admin/hod/principal
+      this.notifyStaff(
+        actor,
+        'Class Updated',
+        `Details of ${className} have been updated.`,
+        { classId, className: className },
+        className,
+      );
 
       return {
         message:"Updated"
@@ -760,6 +1046,62 @@ async addTeacherSchedule(
     }
     return cls?.classStudents;
   }
+
+  // 🔔 Resolve actor identity for notification sender
+  private async getSenderInfo(actorId: string) {
+    const actor = await this.userModel
+      .findById(actorId)
+      .select('name lastName role')
+      .lean();
+    return {
+      senderId: actorId,
+      senderName: actor
+        ? [actor.name, actor.lastName].filter(Boolean).join(' ')
+        : 'Admin',
+      senderRole: actor?.role ?? 'admin',
+    };
+  }
+
+  // 🔔 Get all admins + HODs + principal who should see class updates
+  private async getStaffIds(): Promise<string[]> {
+    const staff = await this.userModel
+      .find({ $or: [{ role: 'admin' }, { isHod: true }, { isPrincipal: true }] })
+      .select('_id')
+      .lean();
+    return staff.map((s) => s._id.toString());
+  }
+
+  // 🔔 Notify all admin/HOD/principal users (fire-and-forget)
+  // excludeUserId - jo teacher/student affected hai, use staff list se hatane ke liye
+  private notifyStaff(
+    actor: { senderId: string; senderName: string; senderRole: string },
+    title: string,
+    message: string,
+    data: Record<string, any>,
+    className?: string,
+    excludeUserId?: string,
+  ) {
+    this.getStaffIds()
+      .then((staffIds) => {
+        const recipients = excludeUserId
+          ? staffIds.filter((id) => id !== excludeUserId)
+          : staffIds;
+        if (recipients.length === 0) return;
+        return this.notificationService.createBulk({
+          userIds: recipients,
+          senderId: actor.senderId,
+          senderName: actor.senderName,
+          senderRole: actor.senderRole,
+          type: 'class',
+          title,
+          message,
+          data,
+          classNames: className ? [className] : [],
+        });
+      })
+      .catch((err) => this.logger.error(`${title} staff notification failed: ${err}`));
+  }
+
   private async findTeacher(id:string){
     const teacher=await this.userModel.exists({_id:id,role:'proff'});
     return teacher?._id ?? null;

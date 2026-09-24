@@ -240,19 +240,30 @@ export class NotificationService {
     // Find students whose className matches any of the target classes
     const students = await UserModel.find({
       className: { $in: classNames },
-      role: 'student', // Sirf students, not teachers/admins
+      role: 'student', // Target classes ke students
     });
 
-    if (students.length === 0) {
-      this.logger.warn(`⚠️ No students found for classes: ${classNames.join(', ')}`);
+    // Find everyone else (teachers, admin, HODs, staff) — SIRF tab jab sender admin ho.
+    // HOD / proff announcements sirf unki selected classes ke students tak limited rehti hain.
+    let staffIds: string[] = [];
+    if (senderInfo.senderRole === 'admin') {
+      const staff = await UserModel.find({
+        role: { $in: ['proff', 'staff', 'admin'] },
+      });
+      staffIds = staff.map((s) => s._id.toString());
+    }
+
+    // 3b. Extract user IDs (combine students + staff, no duplicates)
+    const studentIds = students.map((s) => s._id.toString());
+    const allUserIds = [...new Set([...studentIds, ...staffIds])];
+
+    if (allUserIds.length === 0) {
+      this.logger.warn(`⚠️ No users found for classes: ${classNames.join(', ')}`);
       return { notificationsCreated: 0, studentsNotified: 0 };
     }
 
-    // 3b. Extract student IDs
-    const studentIds = students.map((s) => s._id.toString());
-
     // 3c. Create bulk notifications
-    const notificationsToInsert = studentIds.map((userId) => ({
+    const notificationsToInsert = allUserIds.map((userId) => ({
       userId: new Types.ObjectId(userId),
       senderId: new Types.ObjectId(senderInfo.senderId),
       senderName: senderInfo.senderName,
@@ -270,29 +281,29 @@ export class NotificationService {
       notificationsToInsert,
     );
 
-    // 3e. Send real-time notifications to each student
-    for (let i = 0; i < studentIds.length; i++) {
-      const userId = studentIds[i];
+    // 3e. Send real-time notifications to each user
+    for (let i = 0; i < allUserIds.length; i++) {
+      const userId = allUserIds[i];
       const notification = savedNotifications[i];
 
       // Send via Socket.io
       this.sendRealTimeNotification(userId, notification);
     }
 
-    // 3f. Send FCM push notifications to all students
-    this.sendPushNotification(studentIds, {
+    // 3f. Send FCM push notifications to all users
+    this.sendPushNotification(allUserIds, {
       title,
       body: message,
       data: this.buildPushData(type, data, ''),
     });
 
     this.logger.log(
-      `🎯 Class notification sent to ${students.length} students for classes: ${classNames.join(', ')}`,
+      `🎯 Announcement notification sent to ${allUserIds.length} users (${studentIds.length} students, ${staffIds.length} staff) for classes: ${classNames.join(', ')}`,
     );
 
     return {
       notificationsCreated: savedNotifications.length,
-      studentsNotified: students.length,
+      studentsNotified: allUserIds.length,
     };
   }
 
