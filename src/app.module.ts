@@ -17,7 +17,12 @@ import { FeeModule } from './fee/fee.module';
 import { LeaveTypesModule } from './leave-types/leave-types.module';
 import { SettingsModule } from './settings/settings.module';
 import { SurveyModule } from './survey/survey.module';
-dns.setServers(["1.1.1.1","8.8.8.8"]);
+// Overriding the system resolvers is only safe when the platform DNS is
+// broken. On Render it can hang every outbound lookup (Atlas/host resolution),
+// so it stays opt-in via USE_CUSTOM_DNS=true.
+if (process.env.USE_CUSTOM_DNS === 'true') {
+  dns.setServers(['1.1.1.1', '8.8.8.8']);
+}
 
 @Module({
   imports: [
@@ -31,9 +36,29 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
    MongooseModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URL') || 'mongodb://localhost:27017/college-db',
-      }),
+      useFactory: (configService: ConfigService) => {
+        const uri = configService.get<string>('MONGODB_URL');
+
+        if (!uri) {
+          throw new Error(
+            'MONGODB_URL is not set. Add it to your environment (on Render: Environment tab). ' +
+              'Without it the app cannot bind a port and Render fails with "Port scan timeout reached".',
+          );
+        }
+
+        return {
+          uri,
+          // Fail fast instead of hanging: Nest's mongoose retry defaults
+          // (9 attempts x 30s server selection) kept the process alive for
+          // minutes with no port bound, which Render reports as a timeout.
+          serverSelectionTimeoutMS: 10_000,
+          connectTimeoutMS: 10_000,
+          maxPoolSize: 10,
+          retryAttempts: 2,
+          retryDelay: 2000,
+          verboseRetryLog: true,
+        };
+      },
     }),
     UserModule,
     DepartmentModule,
