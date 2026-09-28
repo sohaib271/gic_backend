@@ -620,6 +620,53 @@ export class NotificationService {
   }
 
   // ============================================================
+  // 11. DELETE NOTIFICATIONS BY DATA PAYLOAD
+  // ============================================================
+
+  /**
+   * Remove a user's notifications whose `data` payload matches every key in
+   * `dataFilter`. Used when the thing a notification pointed at stops being
+   * valid — e.g. a leave application is cancelled, so the HOD's "new leave
+   * request" alert is no longer actionable.
+   *
+   * @param userId - Owning user
+   * @param dataFilter - Subset of the `data` object to match on
+   */
+  async deleteRelated(
+    userId: string,
+    dataFilter: Record<string, any>,
+  ): Promise<number> {
+    const match: Record<string, any> = {
+      userId: new Types.ObjectId(userId),
+    };
+    for (const [key, value] of Object.entries(dataFilter || {})) {
+      match[`data.${key}`] = value;
+    }
+
+    const stale = await this.notificationModel
+      .find(match)
+      .select('_id')
+      .lean<{ _id: Types.ObjectId }[]>();
+
+    if (stale.length === 0) return 0;
+
+    const ids = stale.map((n) => n._id.toString());
+    await this.notificationModel.deleteMany({ _id: { $in: stale.map((n) => n._id) } });
+
+    for (const id of ids) {
+      this.notificationGateway.notifyDeleted(userId, id);
+    }
+
+    this.logger.log(
+      `🗑️ Removed ${ids.length} notification(s) for user ${userId} matching ${JSON.stringify(
+        dataFilter,
+      )}`,
+    );
+
+    return ids.length;
+  }
+
+  // ============================================================
   // HELPER: Send FCM push notification(s)
   // ============================================================
 

@@ -8,6 +8,10 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { LeaveType, LeaveTypeDocument } from './schema/leave-type.schema';
+import { UpdateLeaveTypeDto } from './dto/update-leave-type.dto';
+import { UserRoleEnum } from 'src/user/enum/UserRole.enum';
+
+const ADMIN_ONLY = 'Only admin can manage leave types';
 
 @Injectable()
 export class LeaveTypesService {
@@ -17,40 +21,65 @@ export class LeaveTypesService {
   ) {}
 
   async createLeaveType(name: string, userRole: string) {
-    if (userRole !== 'admin') {
-      throw new ForbiddenException('Only admin can add leave types');
-    }
-    const trimmed = (name || '').trim();
-    if (!trimmed) {
-      throw new BadRequestException('Leave type name is required');
-    }
-    if (trimmed.length > 50) {
-      throw new BadRequestException('Leave type name must not exceed 50 characters');
-    }
+    this.assertAdmin(userRole);
 
-    const existing = await this.leaveTypeModel
-      .findOne({ name: new RegExp(`^${trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') })
-      .exec();
+    const trimmed = this.normaliseName(name);
+    await this.assertNameFree(trimmed);
 
-    if (existing) {
-      throw new ConflictException(`Leave type "${trimmed}" already exists`);
-    }
-
-    const created = await this.leaveTypeModel.create({ name: trimmed });
-    return created;
+    return this.leaveTypeModel.create({ name: trimmed });
   }
 
-  async getAllLeaveTypes() {
-    return this.leaveTypeModel.find().sort({ createdAt: 1 }).exec();
+  /**
+   * Students picking a leave type should only see the ones still offered;
+   * `?all=true` (admin) also returns retired types.
+   */
+  async getAllLeaveTypes(includeInactive = false) {
+    const filter = includeInactive ? {} : { isActive: { $ne: false } };
+    return this.leaveTypeModel
+      .find(filter)
+      .sort({ createdAt: 1 })
+      .lean()
+      .exec();
+  }
+
+  async getLeaveType(id: string) {
+    this.assertObjectId(id);
+    const leaveType = await this.leaveTypeModel.findById(id).lean().exec();
+    if (!leaveType) {
+      throw new NotFoundException('Leave type not found');
+    }
+    return leaveType;
+  }
+
+  async updateLeaveType(id: string, dto: UpdateLeaveTypeDto, userRole: string) {
+    this.assertAdmin(userRole);
+    this.assertObjectId(id);
+
+    if (dto.name !== undefined) {
+      const trimmed = this.normaliseName(dto.name);
+      await this.assertNameFree(trimmed, id);
+      dto.name = trimmed;
+    }
+
+    if (dto.name === undefined && dto.isActive === undefined) {
+      throw new BadRequestException('Nothing to update');
+    }
+
+    const updated = await this.leaveTypeModel
+      .findByIdAndUpdate(id, { $set: dto }, { new: true, runValidators: true })
+      .lean()
+      .exec();
+
+    if (!updated) {
+      throw new NotFoundException('Leave type not found');
+    }
+
+    return updated;
   }
 
   async deleteLeaveType(leaveTypeId: string, userRole: string) {
-    if (userRole !== 'admin') {
-      throw new ForbiddenException('Only admin can delete leave types');
-    }
-    if (!Types.ObjectId.isValid(leaveTypeId)) {
-      throw new BadRequestException('Invalid leave type id');
-    }
+    this.assertAdmin(userRole);
+    this.assertObjectId(leaveTypeId);
 
     const deleted = await this.leaveTypeModel
       .findByIdAndDelete(new Types.ObjectId(leaveTypeId))
@@ -61,5 +90,59 @@ export class LeaveTypesService {
     }
 
     return { message: 'Leave type deleted successfully' };
+  }
+
+  // ============================================================
+  // HELPERS
+  // ============================================================
+
+  private assertAdmin(userRole: string) {
+    if (userRole !== UserRoleEnum.ADMIN) {
+      throw new ForbiddenException(ADMIN_ONLY);
+    }
+  }
+
+  private assertObjectId(id: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid leave type id');
+    }
+  }
+
+  private normaliseName(name: string): string {
+    const trimmed = (name || '').trim();
+    if (!trimmed) {
+      throw new BadRequestException('Leave type name is required');
+    }
+    if (trimmed.length > 50) {
+      throw new BadRequestException(
+        'Leave type name must not exceed 50 characters',
+      );
+    }
+    return trimmed;
+  }
+
+  private async assertNameFree(name: string, exceptId?: string) {
+    // `_id` must be omitted entirely when renaming nothing: the driver
+    // serialises `undefined` as `null`, which turns the filter into
+    // `{ _id: null }` and silently matches nothing.
+    const filter: Record<string, any> = {
+      name: new RegExp(
+        `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+        'i',
+      ),
+    };
+    if (exceptId) {
+      filter._id = { $ne: new Types.ObjectId(exceptId) };
+    }
+
+    const clash = await this.leaveTypeModel
+      .findOne(filter)
+      .select('_id')
+      .lean()
+      .exec();
+
+    if (clash) {
+      throw new ConflictException(`Leave type "${name}" already exists`);
+    }
   }
 }

@@ -15,6 +15,21 @@ import {
 } from 'class-validator';
 
 // ============================================================
+// NOTIFICATION TYPES
+// Keep in sync with the `type` enum in notification.schema.ts
+// ============================================================
+
+export const NOTIFICATION_TYPES = [
+  'announcement',
+  'attendance',
+  'qr',
+  'class',
+  'midterm',
+  'leave',
+  'general',
+] as const;
+
+// ============================================================
 // 1. CREATE NOTIFICATION DTO
 // Used when: Creating a new notification for ONE user
 // ============================================================
@@ -36,7 +51,7 @@ export class CreateNotificationDto {
   @IsNotEmpty()
   senderRole: string;
 
-  @IsEnum(['announcement', 'attendance', 'qr', 'class', 'general'])
+  @IsEnum(NOTIFICATION_TYPES)
   @IsNotEmpty()
   type: string;
 
@@ -80,7 +95,7 @@ export class CreateBulkNotificationDto {
   @IsNotEmpty()
   senderRole: string;
 
-  @IsEnum(['announcement', 'attendance', 'qr', 'class', 'general'])
+  @IsEnum(NOTIFICATION_TYPES)
   @IsNotEmpty()
   type: string;
 
@@ -94,7 +109,7 @@ export class CreateBulkNotificationDto {
 
   @IsObject()
   @IsOptional()
-  data?: Record<string, any>;
+  data?: Record<string, any>; // Extra data for navigation
 
   @IsArray()
   @IsOptional()

@@ -15,8 +15,10 @@ import { NotificationModule } from './notification/notification.module';
 import { RemarksModule } from './remarks/remarks.module';
 import { FeeModule } from './fee/fee.module';
 import { LeaveTypesModule } from './leave-types/leave-types.module';
+import { LeaveModule } from './leave/leave.module';
 import { SettingsModule } from './settings/settings.module';
 import { SurveyModule } from './survey/survey.module';
+import { MidtermModule } from './midterm/midterm.module';
 // Overriding the system resolvers is only safe when the platform DNS is
 // broken. On Render it can hang every outbound lookup (Atlas/host resolution),
 // so it stays opt-in via USE_CUSTOM_DNS=true.
@@ -71,8 +73,10 @@ if (process.env.USE_CUSTOM_DNS === 'true') {
     RemarksModule,
     FeeModule,
     LeaveTypesModule,
+    LeaveModule,
     SettingsModule,
     SurveyModule,
+    MidtermModule,
   ],
   controllers: [],
   providers: [
