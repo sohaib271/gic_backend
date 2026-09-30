@@ -19,6 +19,6 @@ export class SettingsController {
     @Body('value') value: any,
     @Req() req: any,
   ) {
-    return this.settingsService.setSetting(key, value, req.user.role);
+    return this.settingsService.setSetting(key, value, req.user);
   }
 }

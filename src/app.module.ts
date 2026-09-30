@@ -19,6 +19,7 @@ import { LeaveModule } from './leave/leave.module';
 import { SettingsModule } from './settings/settings.module';
 import { SurveyModule } from './survey/survey.module';
 import { MidtermModule } from './midterm/midterm.module';
+import { SubjectModule } from './subject/subject.module';
 // Overriding the system resolvers is only safe when the platform DNS is
 // broken. On Render it can hang every outbound lookup (Atlas/host resolution),
 // so it stays opt-in via USE_CUSTOM_DNS=true.
@@ -77,6 +78,7 @@ if (process.env.USE_CUSTOM_DNS === 'true') {
     SettingsModule,
     SurveyModule,
     MidtermModule,
+    SubjectModule,
   ],
   controllers: [],
   providers: [

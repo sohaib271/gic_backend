@@ -31,7 +31,7 @@ import { SettingsModule } from 'src/settings/settings.module';
     // AuthModule is needed because AuthGuard (JWT) requires UserModel
     AuthModule,
     ConfigModule,
-    // Settings for push-notifications master toggle
+    // Settings for the is_push_noti_enable master toggle
     SettingsModule,
     // Register the Notification schema with MongoDB
     MongooseModule.forFeature([

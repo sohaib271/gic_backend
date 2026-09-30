@@ -259,10 +259,17 @@ export class AuthService {
       role: user.role,
     };
 
-    // Convert to plain object and remove sensitive fields
+    // Convert to plain object and drop sensitive fields. `verifyToken` is the
+    // active session, and `otp`/`otpExpiry`/`passwordResetToken` would let a
+    // caller finish someone else's login — the login response must not carry
+    // them, same as the general user sanitizer.
     const userObject = user.toObject();
     delete userObject.password;
     delete userObject.verifyToken;
+    delete userObject.otp;
+    delete userObject.otpExpiry;
+    delete userObject.passwordResetToken;
+    delete userObject.passwordResetTokenExpiry;
     delete userObject.__v;
 
     return {

@@ -3,16 +3,235 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Class, ClassDocument } from './schema/class.schema';
 import mongoose, { Model, Types } from 'mongoose';
 import { CreateClassDto } from './dto/class.dto';
-import { AssignedTeacherDto } from './dto/assignes.dto';
+import { AssignedTeacherDto, ScheduleDto } from './dto/assignes.dto';
 import { User, UserDocument } from 'src/user/schema/user.schema';
 import { UpdateClassDto } from './dto/updateClass.dto';
 import { StruckOff, StruckOffDocument } from './schema/struckoff.schema';
 import { NotificationService } from 'src/notification/notification.service';
+import { SubjectService } from 'src/subject/subject.service';
+
+/**
+ * A type of a schedule entry after subject resolution and period numbering —
+ * i.e. exactly what gets stored on `assignes[].schedule[]`.
+ */
+export type ResolvedScheduleEntry = {
+  day: string;
+  startTime: string;
+  endTime: string;
+  lectureNumber: number;
+  subjectId: number | null;
+  subject: string | null;
+};
+
+/**
+ * The only student fields a class roster is allowed to expose.
+ *
+ * This is an allowlist on purpose. The previous version excluded fields by name
+ * (`-otp -otpExpiry -cnic -address ...`), which leaks the moment anyone adds a
+ * field to the user schema and forgets to blacklist it — live OTP codes and
+ * national ids were being returned to the mobile app. With an allowlist a new
+ * field is private until it is deliberately listed here.
+ */
+const CLASS_STUDENT_FIELDS =
+  'name lastName specialId class rollNo gender image isActive struckOff ' +
+  'is_apply_leave is_leave_approved';
 
 @Injectable()
 export class ClassService {
   private logger = new Logger('ClassService');
-  constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>, @InjectModel(StruckOff.name)private struckOffModel:Model<StruckOffDocument>, private notificationService: NotificationService){}
+  constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>, @InjectModel(StruckOff.name)private struckOffModel:Model<StruckOffDocument>, private notificationService: NotificationService, private subjectService: SubjectService){}
+
+  /**
+   * Turns the wire shape of a schedule entry into a stored one: resolves
+   * subjects to numeric ids, and assigns period numbers when the client did
+   * not send them.
+   *
+   * The admin portal only ever sends {day, startTime, endTime} plus a
+   * top-level subject name, so requiring lectureNumber/subjectId here would
+   * break every assignment made through it. Instead the values are derived:
+   *
+   *  - subjectId: the entry's id, else its subject name, else the
+   *    assignment-level subject (id or name).
+   *  - lectureNumber: honoured when sent; otherwise periods are numbered per
+   *    day in start-time order, so "period 1" always means the earliest class.
+   *
+   * A subject name that resolves to nothing is reported in `warnings` rather
+   * than rejected — the schedule is still created, just without an id to report
+   * against, and the caller surfaces it to the admin.
+   */
+  async buildScheduleEntries(
+    schedule?: ScheduleDto[],
+    fallback?: { subjectId?: number; subject?: string },
+  ): Promise<{ entries: ResolvedScheduleEntry[]; warnings: string[] }> {
+    if (!schedule || schedule.length === 0) {
+      return { entries: [], warnings: [] };
+    }
+
+    const explicitIds = schedule
+      .map((s) => s.subjectId)
+      .filter((id): id is number => Number.isFinite(id));
+    const fallbackId = Number.isFinite(fallback?.subjectId)
+      ? (fallback?.subjectId as number)
+      : undefined;
+
+    const byId = await this.subjectService.getBySubjectIds([
+      ...explicitIds,
+      ...(fallbackId !== undefined ? [fallbackId] : []),
+    ]);
+    const nameToId = new Map(byId.map((s) => [s.subjectId, s.name]));
+
+    const candidateNames = [
+      ...schedule.map((s) => s.subject).filter((n): n is string => !!n?.trim()),
+      ...(fallback?.subject?.trim() ? [fallback.subject] : []),
+    ];
+    const resolvedNames = await this.subjectService.resolveSubjectIdsByNames(
+      candidateNames,
+    );
+
+    const warnings: string[] = [];
+
+    const entries: ResolvedScheduleEntry[] = schedule.map((slot) => {
+      const entryName = slot.subject?.trim();
+      const fallbackName = fallback?.subject?.trim();
+      let subjectId = slot.subjectId ?? fallbackId;
+      if (subjectId === undefined && entryName) subjectId = resolvedNames.get(entryName);
+      if (subjectId === undefined && fallbackName) {
+        subjectId = resolvedNames.get(fallbackName);
+      }
+
+      const subject =
+        (subjectId !== undefined ? nameToId.get(subjectId) : undefined) ??
+        entryName ??
+        fallbackName ??
+        null;
+
+      if (subjectId === undefined && subject) {
+        // One warning per distinct subject, not per lecture.
+        const message = `"${subject}" is not in the subject list, so lectures for it will not appear in subject-wise reports. Create it via POST /subjects.`;
+        if (!warnings.includes(message)) warnings.push(message);
+      }
+
+      return {
+        day: slot.day,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        // Numbered below; the type demands a number even though it is blank
+        // until then.
+        lectureNumber: slot.lectureNumber as number,
+        subjectId: subjectId ?? null,
+        subject: subject ?? null,
+      };
+    });
+
+    this.assignLectureNumbers(entries);
+
+    return { entries, warnings };
+  }
+
+  /**
+   * Numbers the periods that the client left blank, per day, in start-time
+   * order. Explicit numbers are kept and the free slots fill the lowest numbers
+   * that are still available, so a hand-numbered timetable is never renumbered
+   * out from under the admin.
+   */
+  private assignLectureNumbers(entries: ResolvedScheduleEntry[]) {
+    const byDay = new Map<string, ResolvedScheduleEntry[]>();
+    for (const entry of entries) {
+      const key = entry.day.trim().toLowerCase();
+      const bucket = byDay.get(key) ?? [];
+      bucket.push(entry);
+      byDay.set(key, bucket);
+    }
+
+    for (const bucket of byDay.values()) {
+      const unnumbered = bucket
+        .filter((e) => !Number.isFinite(e.lectureNumber))
+        .sort(
+          (a, b) => this.clockToMinutes(a.startTime) - this.clockToMinutes(b.startTime),
+        );
+
+      const taken = new Set(
+        bucket
+          .filter((e) => Number.isFinite(e.lectureNumber))
+          .map((e) => e.lectureNumber as number),
+      );
+
+      let next = 1;
+      for (const entry of unnumbered) {
+        while (taken.has(next)) next++;
+        entry.lectureNumber = next;
+        taken.add(next);
+      }
+    }
+  }
+
+  private clockToMinutes(value: string): number {
+    const [h, m] = String(value).split(':');
+    const hours = Number(h);
+    const minutes = Number(m);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
+    return hours * 60 + minutes;
+  }
+
+  /**
+   * Rejects a teacher's schedule that would collide inside a single class:
+   *  - the same period twice, and
+   *  - overlapping times, which would otherwise be auto-numbered as two
+   *    different periods of the same class at the same moment.
+   *
+   * `existing` is the other teachers' schedules in this class, so a new
+   * assignment cannot quietly take a slot that is already taught.
+   */
+  private assertScheduleConflictsFree(
+    entries: ResolvedScheduleEntry[],
+    assignedTeachers: {
+      teacherId?: unknown;
+      schedule?: { day: string; startTime: string; endTime: string }[];
+    }[] = [],
+    ignoreTeacherId?: string,
+  ) {
+    const overlaps = (a: { startTime: string; endTime: string }, b: { startTime: string; endTime: string }) =>
+      this.clockToMinutes(a.startTime) < this.clockToMinutes(b.endTime) &&
+      this.clockToMinutes(b.startTime) < this.clockToMinutes(a.endTime);
+
+    const sameDay = (a: { day: string }, b: { day: string }) =>
+      a.day.trim().toLowerCase() === b.day.trim().toLowerCase();
+
+    // Flatten the other teachers' slots, skipping whoever is being re-edited.
+    const others = assignedTeachers
+      .filter((t) => t.teacherId?.toString() !== ignoreTeacherId)
+      .flatMap((t) => t.schedule ?? []);
+
+    const seen = new Map<string, ResolvedScheduleEntry>();
+    for (const entry of entries) {
+      const key = `${entry.day.trim().toLowerCase()}-${entry.lectureNumber}`;
+      if (seen.has(key)) {
+        throw new ConflictException(
+          `Lecture ${entry.lectureNumber} on ${entry.day} is assigned twice in this class.`,
+        );
+      }
+      seen.set(key, entry);
+
+      const clash = others.find(
+        (slot) => sameDay(slot, entry) && overlaps(slot, entry),
+      );
+      if (clash) {
+        throw new ConflictException(
+          `Another teacher already takes ${entry.day} ${entry.startTime}-${entry.endTime} in this class.`,
+        );
+      }
+    }
+
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        if (sameDay(entries[i], entries[j]) && overlaps(entries[i], entries[j])) {
+          throw new ConflictException(
+            `Lectures on ${entries[i].day} overlap: ${entries[i].startTime}-${entries[i].endTime} and ${entries[j].startTime}-${entries[j].endTime}.`,
+          );
+        }
+      }
+    }
+  }
 
 
   // ✅ Parse date safely as UTC calendar date
@@ -73,7 +292,7 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
     if(category) filter={category};
     if(department) filter={departmentId:department};
     if(category && department) filter={category,departmentId:department}
-    const classes=await this.classModel.find(filter).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role -otp -otpExpiry -image -cnic -address -phone -__v -matricMarks"}).populate({
+    const classes=await this.classModel.find(filter).lean().populate({path:"classStudents",select:CLASS_STUDENT_FIELDS}).populate({
     path: "departmentId", select:"code _id category"
   }).populate({path:"assignes.teacherId",select:"name"});
     if(classes.length===0){
@@ -84,15 +303,68 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
   }
 
   async getMyClasses(teacherId){
-       const classes=await this.classModel.find({"assignes.teacherId": teacherId}).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"}).populate({
+       const classes=await this.classModel.find({"assignes.teacherId": teacherId}).lean().populate({path:"classStudents",select:CLASS_STUDENT_FIELDS}).populate({
     path: "departmentId",
   }).populate({path:"assignes.teacherId",select:"name"});
-    if(classes.length==0){
-      return "No Class created";
-    }
+if(classes.length==0){
+     // Always an array: the mobile app maps over this response, so returning a
+     // string here crashed it for any teacher with no classes.
+     return [];
+   }
 
-    return classes;
-  }
+   return this.withSubjectDetails(classes);
+ }
+
+ /**
+  * Attaches a flat per-lecture list (subjectId + resolved subject name) to each
+  * class so the app does not have to walk the nested assignes array itself.
+  */
+ private async withSubjectDetails(classes: any[]) {
+   const subjectIds = classes.flatMap((c) =>
+     (c.assignes ?? []).flatMap((a: any) => [
+       ...(typeof a.subjectId === 'number' ? [a.subjectId] : []),
+       ...((a.schedule ?? [])
+         .map((s: any) => s.subjectId)
+         .filter((id: unknown) => typeof id === 'number')),
+     ]),
+   );
+
+   const subjectMap = await this.subjectService.getMapBySubjectIds(subjectIds);
+
+   return classes.map((c) => ({ ...c, todayLectures: this.flattenLectures(c, subjectMap) }));
+ }
+
+private flattenLectures(
+   cls: any,
+   subjectMap: Map<number, { name: string | null; code: string | null }>,
+ ) {
+   const lectures = (cls.assignes ?? []).flatMap((a: any) => {
+     const teacher = a.teacherId?._id ?? a.teacherId;
+     const teacherName = a.teacherId?.name ?? null;
+
+     return (a.schedule ?? []).map((s: any, index: number) => {
+       const subjectId = typeof s.subjectId === 'number' ? s.subjectId : a.subjectId ?? null;
+       const resolved = subjectId !== null ? subjectMap.get(subjectId) : undefined;
+
+       return {
+         day: s.day,
+         startTime: s.startTime,
+         endTime: s.endTime,
+         lectureNumber: s.lectureNumber ?? index + 1,
+         subjectId,
+         subject: resolved?.name ?? s.subject ?? a.subject ?? null,
+         subjectCode: resolved?.code ?? null,
+         teacherId: teacher ? String(teacher) : null,
+         teacherName,
+       };
+     });
+   });
+
+   return lectures.sort((x, y) => {
+     if (x.day !== y.day) return x.day.localeCompare(y.day);
+     return x.startTime.localeCompare(y.startTime);
+   });
+ }
 
   
   async createClass(dto: CreateClassDto, createdBy: string) {
@@ -153,7 +425,7 @@ async getClassInfo(classId:string){
 }
 
 async getClassStudentList(classId:string){
-  const isExist=await this.classModel.findById(classId,{classStudents:1}).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"});
+  const isExist=await this.classModel.findById(classId,{classStudents:1}).lean().populate({path:"classStudents",select:CLASS_STUDENT_FIELDS});
 
   if(!isExist){
     throw new NotFoundException("Class doesn't exist");
@@ -193,11 +465,47 @@ async getAssignedTeacherList(classId:string){
   const isExistInClass = classTeachers?.find(
     (teacher) =>
       teacher.teacherId.toString() === dto.teacherId ||
-      teacher.subject === dto.subject
+      (dto.subjectId !== undefined && teacher.subjectId === dto.subjectId) ||
+      (dto.subjectId === undefined && teacher.subject === dto.subject),
   );
 
   if (isExistInClass) {
-    throw new ConflictException("Teacher already exists");
+    throw new ConflictException("Teacher already exists in this class for that subject");
+  }
+
+  const { entries: scheduleEntries, warnings } = await this.buildScheduleEntries(
+    dto.schedule,
+    { subjectId: dto.subjectId, subject: dto.subject },
+  );
+
+  const classDoc = await this.classModel
+    .findById(classId)
+    .select('assignes')
+    .lean();
+  this.assertScheduleConflictsFree(
+    scheduleEntries,
+    classDoc?.assignes ?? [],
+    dto.teacherId,
+  );
+
+  // Fall back to the first lecture's subject when the caller only sent a
+  // top-level subject name, so older clients keep working.
+  let subjectId = dto.subjectId;
+  let subjectName = dto.subject;
+  if (subjectId === undefined && scheduleEntries.length > 0) {
+    subjectId = scheduleEntries[0].subjectId ?? undefined;
+  }
+  if (subjectId !== undefined && !subjectName) {
+    subjectName =
+      scheduleEntries.find((e) => e.subjectId === subjectId)?.subject ??
+      (await this.subjectService.getBySubjectIds([subjectId]))[0]?.name ??
+      undefined;
+  }
+  if (subjectId === undefined && !subjectName && scheduleEntries.length > 0) {
+    subjectName = scheduleEntries[0].subject ?? undefined;
+  }
+  if (subjectId === undefined && !subjectName) {
+    throw new BadRequestException('Provide a subject for the assignment');
   }
 
   const [cls, teacher, actor] = await Promise.all([
@@ -212,8 +520,9 @@ async getAssignedTeacherList(classId:string){
       $push: {
         assignes: {
           teacherId: dto.teacherId,
-          subject:   dto.subject,
-          schedule:  dto.schedule ?? [],
+          subjectId,
+          subject:   subjectName,
+          schedule:  scheduleEntries,
         },
       },
     },
@@ -224,6 +533,7 @@ async getAssignedTeacherList(classId:string){
   const teacherName = teacher
     ? [teacher.name, teacher.lastName].filter(Boolean).join(' ')
     : 'Teacher';
+  const displaySubject = subjectName ?? `Subject #${subjectId}`;
 
   // 🔔 Notify the assigned teacher
   this.notificationService
@@ -232,13 +542,12 @@ async getAssignedTeacherList(classId:string){
       ...actor,
       type: 'class',
       title: 'Class Assigned',
-      message: dto.subject
-        ? `You have been assigned to teach ${dto.subject} in ${className}.`
-        : `You have been assigned to teach ${className}.`,
+      message: `You have been assigned to teach ${displaySubject} in ${className}.`,
       data: {
         classId,
         className: className,
-        ...(dto.subject ? { subject: dto.subject } : {}),
+        ...(subjectId !== undefined ? { subjectId } : {}),
+        subject: displaySubject,
       },
       classNames: [className],
     })
@@ -248,18 +557,23 @@ async getAssignedTeacherList(classId:string){
   this.notifyStaff(
     actor,
     'Teacher Added to Class',
-    `${teacherName} has been added to teach ${
-      dto.subject ? `${dto.subject} in ` : ''
-    }${className}.`,
-    { classId, className: className },
+    `${teacherName} has been added to teach ${displaySubject} in ${className}.`,
+    { classId, className: className, ...(subjectId !== undefined ? { subjectId } : {}) },
     className,
     dto.teacherId,
   );
 
-  return { message: "Teacher assigned successfully" };
+  return {
+    message: "Teacher assigned successfully",
+    subjectId: subjectId ?? null,
+    schedule: scheduleEntries,
+    // Non-fatal: a subject name the catalogue does not know yet, so the admin
+    // can create it instead of the assignment silently missing reports.
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 }
 
-async updateTeacherSchedule(classId: string, teacherId: string, schedule: { day: string; startTime: string; endTime: string }[], actionBy: string) {
+async updateTeacherSchedule(classId: string, teacherId: string, schedule: ScheduleDto[], actionBy: string) {
   const classTeachers = await this.checkTeachers(classId, teacherId);
   
   const teacherIndex = classTeachers?.findIndex(
@@ -274,12 +588,30 @@ async updateTeacherSchedule(classId: string, teacherId: string, schedule: { day:
     throw new BadRequestException("Schedule cannot be empty");
   }
 
+  const { entries: scheduleEntries, warnings } = await this.buildScheduleEntries(
+    schedule,
+    {
+      subjectId: classTeachers?.[teacherIndex]?.subjectId,
+      subject: classTeachers?.[teacherIndex]?.subject,
+    },
+  );
+
+  const classDoc = await this.classModel
+    .findById(classId)
+    .select('assignes')
+    .lean();
+  this.assertScheduleConflictsFree(
+    scheduleEntries,
+    classDoc?.assignes ?? [],
+    teacherId,
+  );
+
   // ✅ Update schedule of the specific teacher using positional operator
   await this.classModel.findByIdAndUpdate(
     classId,
     {
       $set: {
-        [`assignes.${teacherIndex}.schedule`]: schedule,
+        [`assignes.${teacherIndex}.schedule`]: scheduleEntries,
       },
     },
     { new: true }
@@ -311,13 +643,17 @@ async updateTeacherSchedule(classId: string, teacherId: string, schedule: { day:
     teacherId,
   );
 
-  return { message: "Schedule updated successfully" };
+  return {
+    message: "Schedule updated successfully",
+    schedule: scheduleEntries,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 }
 
 async addTeacherSchedule(
   classId: string,
   teacherId: string,
-  schedule: { day: string; startTime: string; endTime: string }[],
+  schedule: ScheduleDto[],
   actionBy: string,
 ) {
   const classTeachers = await this.checkTeachers(classId, teacherId);
@@ -340,19 +676,38 @@ async addTeacherSchedule(
   }
 
   const existingDays = classTeachers[teacherIndex].schedule?.map((s) => s.day) ?? [];
-  const duplicates   = schedule.filter((s) => existingDays.includes(s.day));
+  const incomingDays = schedule.map((s) => s.day);
+  const duplicates   = incomingDays.filter((d) => existingDays.includes(d));
 
   if (duplicates.length > 0) {
     throw new ConflictException(
-      `Schedule already exists for: ${duplicates.map((d) => d.day).join(", ")}`
+      `Schedule already exists for: ${duplicates.join(", ")}`
     );
   }
+
+  const { entries: scheduleEntries, warnings } = await this.buildScheduleEntries(
+    schedule,
+    {
+      subjectId: classTeachers[teacherIndex].subjectId,
+      subject: classTeachers[teacherIndex].subject,
+    },
+  );
+
+  const classDoc = await this.classModel
+    .findById(classId)
+    .select('assignes')
+    .lean();
+  this.assertScheduleConflictsFree(
+    scheduleEntries,
+    classDoc?.assignes ?? [],
+    teacherId,
+  );
 
   await this.classModel.findByIdAndUpdate(
     classId,
     {
       $push: {
-        [`assignes.${teacherIndex}.schedule`]: { $each: schedule },
+        [`assignes.${teacherIndex}.schedule`]: { $each: scheduleEntries },
       },
     },
     { new: true }
@@ -384,7 +739,11 @@ async addTeacherSchedule(
     teacherId,
   );
 
-  return { message: "Schedule entries added successfully" };
+  return {
+    message: "Schedule entries added successfully",
+    schedule: scheduleEntries,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 }
 
   async addStudentInClass(classId:string,studentId:string,actionBy:string){

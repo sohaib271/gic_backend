@@ -59,7 +59,7 @@ export class NotificationService {
     // Inject Firebase service for FCM push notifications
     private firebaseService: FirebaseService,
 
-    // Inject settings for the global push-notifications toggle
+    // Inject settings for the is_push_noti_enable master toggle
     private settingsService: SettingsService,
   ) {}
 
@@ -681,9 +681,12 @@ export class NotificationService {
     try {
       if (!this.firebaseService.isConfigured()) return;
 
-      // Global master toggle: admin OFF kar de to FCM push skip, in-app/socket still chalta hai
+      // Admin/HOD master toggle from the app settings screen. Read per send so
+      // a flip takes effect on the very next notification, with no restart and
+      // no cache to invalidate. The stored record and the in-app socket event
+      // are deliberately unaffected — this switch is about device push only.
       const pushEnabled = await this.settingsService.getSetting(
-        'push-notifications',
+        'is_push_noti_enable',
         true,
       );
       if (pushEnabled === false) {

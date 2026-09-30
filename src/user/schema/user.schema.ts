@@ -49,6 +49,17 @@ export class User {
   @Prop({default:false})
   struckOff?:boolean;
 
+  // Leave state mirrored onto the student record so a teacher marking a class
+  // can see at a glance who is on approved leave without opening each request.
+  // Kept as two independent flags: a student may have applied (is_apply_leave)
+  // while the request is still pending, in which case is_leave_approved is
+  // false and neither means "absent".
+  @Prop({ default: false })
+  is_apply_leave?: boolean;
+
+  @Prop({ default: false })
+  is_leave_approved?: boolean;
+
   @Prop({ required: true })
   lastName!: string;
 

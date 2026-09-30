@@ -10,6 +10,8 @@ import * as QRCode from 'qrcode';
 import * as crypto from 'crypto';
 import { Class, ClassDocument } from 'src/class/schema/class.schema';
 import { User, UserDocument } from 'src/user/schema/user.schema';
+import { Attendance, AttendenceDocument } from 'src/attendence/schema/attendence.schema';
+import { SubjectService } from 'src/subject/subject.service';
 import { TeacherAttendanceDto } from './dto/teacherAttendanceDto';
 import {
   TeacherAttendance,
@@ -21,11 +23,18 @@ export class TeacherService {
   private readonly logger = new Logger(TeacherService.name);
   private readonly QR_SECRET: string;
 
+  /** Grace on either side of a lecture during which attendance can be marked. */
+  private readonly OPEN_BEFORE_MINUTES = 10;
+  private readonly MARK_GRACE_MINUTES = 30;
+
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectModel(Class.name) private readonly classModel: Model<ClassDocument>,
     @InjectModel(TeacherAttendance.name)
     private readonly teacherAttendanceModel: Model<TeacherAttendanceDocument>,
+    @InjectModel(Attendance.name)
+    private readonly attendanceModel: Model<AttendenceDocument>,
+    private readonly subjectService: SubjectService,
   ) {
     if (!process.env.QR_SECRET) {
       this.logger.warn(
@@ -112,12 +121,30 @@ export class TeacherService {
   }
 
   // ✅ Get current time in PKT (UTC+5) — needed if your school is in Pakistan
-  getNowInPKT(): { nowTotal: number } {
+  getNowInPKT(): { nowTotal: number; dayName: string; todayStr: string } {
     const now = new Date();
     const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
     const pktOffset = 5 * 60; // PKT = UTC+5
     const pktMinutes = (utcMinutes + pktOffset) % (24 * 60);
-    return { nowTotal: pktMinutes };
+
+    const dayNames = [
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ];
+    // Reuse the same shifted instant so day name and minutes cannot disagree
+    // across the UTC midnight boundary.
+    const pktDate = new Date(now.getTime() + 5 * 60 * 60 * 1000);
+
+    return {
+      nowTotal: pktMinutes,
+      dayName: dayNames[pktDate.getUTCDay()],
+      todayStr: pktDate.toISOString().split('T')[0],
+    };
   }
 
   async markTeacherAttendance(dto: TeacherAttendanceDto, teacherId: string) {
@@ -468,5 +495,167 @@ export class TeacherService {
       success: true,
       data,
     };
+  }
+
+  /**
+   * Everything the mobile home screen needs: today's lectures for this
+   * teacher, already resolved to subject names and flagged live/upcoming/
+   * finished, with a `marked` flag so the app can show what is still pending.
+   *
+   * The teacher never picks a class by hand — the backend decides which
+   * lecture is current, so a mis-tap cannot mark the wrong period.
+   */
+  async getTodayLectures(teacherId: string) {
+    const teacher = await this.userModel
+      .findOne({ _id: teacherId, role: 'proff' })
+      .select('_id name lastName')
+      .lean();
+
+    if (!teacher) {
+      throw new NotFoundException('Teacher not found');
+    }
+
+    const { dayName, nowTotal, todayStr } = this.getNowInPKT();
+
+    const classes = await this.classModel
+      .find({ 'assignes.teacherId': teacherId })
+      .select('className class session category classStudents assignes')
+      .lean();
+
+    if (classes.length === 0) {
+      return {
+        date: todayStr,
+        day: dayName,
+        currentTime: this.minutesToHHMM(nowTotal),
+        totalLectures: 0,
+        liveLecture: null,
+        pendingCount: 0,
+        lectures: [],
+      };
+    }
+
+    const subjectIds = classes.flatMap((c: any) =>
+      (c.assignes ?? []).flatMap((a: any) => [
+        ...(typeof a.subjectId === 'number' ? [a.subjectId] : []),
+        ...((a.schedule ?? [])
+          .map((s: any) => s.subjectId)
+          .filter((id: unknown) => typeof id === 'number')),
+      ]),
+    );
+    const subjectMap = await this.subjectService.getMapBySubjectIds(subjectIds);
+
+    const dayStart = new Date(`${todayStr}T00:00:00.000Z`);
+    const dayEnd = new Date(`${todayStr}T23:59:59.999Z`);
+
+    const lectures: any[] = [];
+
+    for (const cls of classes as any[]) {
+      const assignment = (cls.assignes ?? []).find(
+        (a: any) => String(a.teacherId?._id ?? a.teacherId) === String(teacherId),
+      );
+      if (!assignment?.schedule?.length) continue;
+
+      const totalStudents = (cls.classStudents ?? []).filter(Boolean).length;
+
+      for (const slot of assignment.schedule) {
+        if ((slot.day ?? '').toLowerCase() !== dayName.toLowerCase()) continue;
+
+        const lectureNumber =
+          typeof slot.lectureNumber === 'number'
+            ? slot.lectureNumber
+            : assignment.schedule.indexOf(slot) + 1;
+        const subjectId =
+          typeof slot.subjectId === 'number' ? slot.subjectId : assignment.subjectId ?? null;
+        const resolved = subjectId !== null ? subjectMap.get(subjectId) : undefined;
+
+        const startTotal = this.toMinutes(slot.startTime);
+        const endTotal = this.toMinutes(slot.endTime);
+        if (startTotal === null || endTotal === null) continue;
+
+        // Teacher can open the app slightly before the bell and still has the
+        // usual 30-minute grace to finish marking afterwards.
+        const opensAt = startTotal - this.OPEN_BEFORE_MINUTES;
+        const closesAt = endTotal + this.MARK_GRACE_MINUTES;
+
+        let status: 'upcoming' | 'live' | 'finished';
+        if (nowTotal < opensAt) status = 'upcoming';
+        else if (nowTotal <= closesAt) status = 'live';
+        else status = 'finished';
+
+        const isMarked = await this.hasAttendanceForLecture(
+          String(cls._id),
+          teacherId,
+          dayStart,
+          dayEnd,
+          lectureNumber,
+        );
+
+        lectures.push({
+          classId: String(cls._id),
+          className: cls.className,
+          classLevel: cls.class ?? null,
+          session: cls.session ?? null,
+          category: cls.category ?? null,
+          lectureNumber,
+          subjectId,
+          subject: resolved?.name ?? slot.subject ?? assignment.subject ?? null,
+          subjectCode: resolved?.code ?? null,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          graceEndsAt: this.minutesToHHMM(closesAt),
+          totalStudents,
+          status,
+          marked: isMarked,
+        });
+      }
+    }
+
+    lectures.sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    // At most one lecture is live at a time; if schedule data overlaps, the
+    // earliest start wins so the app always shows a single unambiguous card.
+    const liveCandidates = lectures.filter((l) => l.status === 'live');
+    const liveLecture =
+      liveCandidates.length > 0 ? liveCandidates[0] : null;
+
+    return {
+      date: todayStr,
+      day: dayName,
+      currentTime: this.minutesToHHMM(nowTotal),
+      totalLectures: lectures.length,
+      liveLecture,
+      pendingCount: lectures.filter((l) => !l.marked && l.status !== 'finished').length,
+      lectures,
+    };
+  }
+
+  private async hasAttendanceForLecture(
+    classId: string,
+    teacherId: string,
+    dayStart: Date,
+    dayEnd: Date,
+    lectureNumber: number,
+  ): Promise<boolean> {
+    return Boolean(
+      await this.attendanceModel.exists({
+        classId: new Types.ObjectId(classId),
+        teacherId: new Types.ObjectId(teacherId),
+        date: { $gte: dayStart, $lte: dayEnd },
+        ...(lectureNumber !== undefined ? { lectureNumber } : {}),
+      }),
+    );
+  }
+
+  private toMinutes(hhmm: string): number | null {
+    const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(hhmm ?? '').trim());
+    if (!match) return null;
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+
+  private minutesToHHMM(total: number): string {
+    const wrapped = ((total % 1440) + 1440) % 1440;
+    const h = String(Math.floor(wrapped / 60)).padStart(2, '0');
+    const m = String(wrapped % 60).padStart(2, '0');
+    return `${h}:${m}`;
   }
 }

@@ -10,18 +10,23 @@ import { Model, Types } from 'mongoose';
 import { LeaveType, LeaveTypeDocument } from './schema/leave-type.schema';
 import { UpdateLeaveTypeDto } from './dto/update-leave-type.dto';
 import { UserRoleEnum } from 'src/user/enum/UserRole.enum';
+import { User, UserDocument } from 'src/user/schema/user.schema';
 
 const ADMIN_ONLY = 'Only admin can manage leave types';
+
+/** The caller's identity, as the auth guard attaches it to the request. */
+type Actor = { sub: string; role?: string };
 
 @Injectable()
 export class LeaveTypesService {
   constructor(
     @InjectModel(LeaveType.name)
     private readonly leaveTypeModel: Model<LeaveTypeDocument>,
+    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
   ) {}
 
-  async createLeaveType(name: string, userRole: string) {
-    this.assertAdmin(userRole);
+  async createLeaveType(name: string, actor: Actor) {
+    await this.assertCanManage(actor);
 
     const trimmed = this.normaliseName(name);
     await this.assertNameFree(trimmed);
@@ -51,8 +56,8 @@ export class LeaveTypesService {
     return leaveType;
   }
 
-  async updateLeaveType(id: string, dto: UpdateLeaveTypeDto, userRole: string) {
-    this.assertAdmin(userRole);
+  async updateLeaveType(id: string, dto: UpdateLeaveTypeDto, actor: Actor) {
+    await this.assertCanManage(actor);
     this.assertObjectId(id);
 
     if (dto.name !== undefined) {
@@ -77,8 +82,8 @@ export class LeaveTypesService {
     return updated;
   }
 
-  async deleteLeaveType(leaveTypeId: string, userRole: string) {
-    this.assertAdmin(userRole);
+  async deleteLeaveType(leaveTypeId: string, actor: Actor) {
+    await this.assertCanManage(actor);
     this.assertObjectId(leaveTypeId);
 
     const deleted = await this.leaveTypeModel
@@ -96,10 +101,23 @@ export class LeaveTypesService {
   // HELPERS
   // ============================================================
 
-  private assertAdmin(userRole: string) {
-    if (userRole !== UserRoleEnum.ADMIN) {
-      throw new ForbiddenException(ADMIN_ONLY);
+  /**
+   * Leave types are a college-wide catalogue, but a department HOD needs to
+   * maintain them for their own staff, so admins and HODs may both manage
+   * them. The HOD flag is read from the user record rather than trusted from
+   * the token, because the JWT only carries `sub` and `role` — a role string
+   * on its own cannot distinguish an HOD from an ordinary professor.
+   */
+  private async assertCanManage(actor: Actor): Promise<void> {
+    if (actor?.role === UserRoleEnum.ADMIN) return;
+
+    if (actor?.role === UserRoleEnum.PROFF && actor.sub) {
+      const isHod = await this.userModel
+        .exists({ _id: actor.sub, role: UserRoleEnum.PROFF, isHod: true });
+      if (isHod) return;
     }
+
+    throw new ForbiddenException(ADMIN_ONLY);
   }
 
   private assertObjectId(id: string) {

@@ -19,6 +19,15 @@ export class TeacherController {
     return this.teacherService.getMyAssignedStudents(req?.user?.sub);
   }
 
+  // Home screen feed for the app: today's lectures with live/upcoming/finished
+  // state, resolved subject names and a `marked` flag.
+  @Get('today-lectures')
+  @UseGuards(RolesGuard)
+  @Roles('proff')
+  getTodayLectures(@Req() req: any) {
+    return this.teacherService.getTodayLectures(req?.user?.sub);
+  }
+
   @Post('mark-attendance')
   @UseGuards(RolesGuard)
   @Roles('proff')

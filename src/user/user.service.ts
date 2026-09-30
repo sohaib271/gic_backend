@@ -554,12 +554,65 @@ async updateUser(id: string, updateData: any) {
 
   /* ======================
      HELPER: SANITIZE USER
-  ======================= */
+   ======================= */
+
+  /**
+   * Everything a client is allowed to see on a user.
+   *
+   * An allowlist, not a denylist. The previous version deleted `password` and
+   * `verifyToken` and passed everything else through, which meant live `otp` /
+   * `otpExpiry` / `passwordResetToken` values — enough to take over any
+   * account mid-login — were returned by the user list and profile endpoints.
+   * A new field added to the schema is now private until it is listed here.
+   */
+  private static readonly USER_PUBLIC_FIELDS = new Set<string>([
+    '_id',
+    'id',
+    'specialId',
+    'email',
+    'city',
+    'isActive',
+    'gender',
+    'image',
+    'name',
+    'shift',
+    'struckOff',
+    'is_apply_leave',
+    'is_leave_approved',
+    'lastName',
+    'cnic',
+    'phone',
+    'address',
+    'role',
+    'isQrScanned',
+    'lastLoginAt',
+    'department',
+    'departmentId',
+    'session',
+    'rollNo',
+    'category',
+    'subjects',
+    'matricMarks',
+    'interMarks',
+    'class',
+    'whatsappNumber',
+    'isHod',
+    'doj',
+    'isPrincipal',
+    'qualification',
+    'experience',
+    'designation',
+    'createdAt',
+    'updatedAt',
+  ]);
+
   private sanitizeUser(user: any) {
     const userObject = typeof user?.toObject === "function" ? user.toObject() : { ...user };
-    delete userObject.password;
-    delete userObject.verifyToken;
-    delete userObject.__v;
+    for (const key of Object.keys(userObject)) {
+      if (!UserService.USER_PUBLIC_FIELDS.has(key)) {
+        delete userObject[key];
+      }
+    }
     return userObject;
   }
 }

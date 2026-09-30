@@ -7,10 +7,11 @@ import { ClassController } from './class.controller';
 import { User, UserSchema } from 'src/user/schema/user.schema';
 import { StruckOff, StruckOffSchema } from './schema/struckoff.schema';
 import { NotificationModule } from 'src/notification/notification.module';
+import { SubjectModule } from 'src/subject/subject.module';
 
 
 @Module({
-  imports:[AuthModule,NotificationModule,MongooseModule.forFeature([{name:Class.name,schema:ClassSchema},{name:User.name,schema:UserSchema},{name:StruckOff.name,schema:StruckOffSchema}])],
+  imports:[AuthModule,NotificationModule,SubjectModule,MongooseModule.forFeature([{name:Class.name,schema:ClassSchema},{name:User.name,schema:UserSchema},{name:StruckOff.name,schema:StruckOffSchema}])],
   providers: [ClassService],
   controllers: [ClassController]
 })

@@ -123,6 +123,17 @@ export class LeaveService {
 
     await this.notifyHodOfNewRequest(created, actor);
 
+    // Mirror the state onto the student so a teacher marking a class sees who
+    // is on leave without opening each request. Applied but not yet decided.
+    await this.userModel
+      .updateOne(
+        { _id: actor._id },
+        { $set: { is_apply_leave: true, is_leave_approved: false } },
+      )
+      .catch((err) =>
+        this.logger.error(`Failed to flag leave state on student: ${err}`),
+      );
+
     this.logger.log(
       `Leave applied by ${this.fullName(actor)} (${totalDays} day(s)) -> status pending`,
     );
@@ -286,6 +297,18 @@ export class LeaveService {
     leave.decisionNote = dto.note?.trim() || null;
     await leave.save();
 
+    // Keep the student's mirrored flags consistent with the decision:
+    // approved -> still on leave, but sanctioned; rejected -> not on leave.
+    const approved = dto.status === LeaveStatusEnum.APPROVED;
+    await this.userModel
+      .updateOne(
+        { _id: leave.studentId },
+        { $set: { is_apply_leave: approved, is_leave_approved: approved } },
+      )
+      .catch((err) =>
+        this.logger.error(`Failed to flag leave state on student: ${err}`),
+      );
+
     await this.notifyStudentOfDecision(leave, actor);
 
     this.logger.log(
@@ -325,6 +348,20 @@ export class LeaveService {
     leave.status = LeaveStatusEnum.CANCELLED;
     leave.cancelledAt = new Date();
     await leave.save();
+
+    // A cancelled request no longer puts the student on leave. Guarded on the
+    // status so a second, newer request is not cleared by cancelling an old one.
+    await this.userModel
+      .updateOne(
+        {
+          _id: actor._id,
+          is_leave_approved: { $ne: true },
+        },
+        { $set: { is_apply_leave: false, is_leave_approved: false } },
+      )
+      .catch((err) =>
+        this.logger.error(`Failed to clear leave state on student: ${err}`),
+      );
 
     // The HOD's inbox no longer contains it, so drop the "new request" ping.
     const approvers = await this.resolveApprovers(actor);

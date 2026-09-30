@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { SettingsController } from './settings.controller';
+import { AppSettingController } from './app-setting.controller';
 import { SettingsService } from './settings.service';
 import { Setting, SettingSchema } from './schema/setting.schema';
 import { User, UserSchema } from '../user/schema/user.schema';
@@ -22,7 +23,7 @@ import { User, UserSchema } from '../user/schema/user.schema';
       }),
     }),
   ],
-  controllers: [SettingsController],
+  controllers: [SettingsController, AppSettingController],
   providers: [SettingsService],
   exports: [SettingsService],
 })
