@@ -18,6 +18,7 @@ import { LeaveTypesModule } from './leave-types/leave-types.module';
 import { LeaveModule } from './leave/leave.module';
 import { SettingsModule } from './settings/settings.module';
 import { SurveyModule } from './survey/survey.module';
+<<<<<<< HEAD
 import { MidtermModule } from './midterm/midterm.module';
 import { SubjectModule } from './subject/subject.module';
 // Overriding the system resolvers is only safe when the platform DNS is
@@ -26,6 +27,10 @@ import { SubjectModule } from './subject/subject.module';
 if (process.env.USE_CUSTOM_DNS === 'true') {
   dns.setServers(['1.1.1.1', '8.8.8.8']);
 }
+=======
+import { ChatModule } from './chat/chat.module';
+dns.setServers(["1.1.1.1","8.8.8.8"]);
+>>>>>>> chat
 
 @Module({
   imports: [
@@ -77,8 +82,12 @@ if (process.env.USE_CUSTOM_DNS === 'true') {
     LeaveModule,
     SettingsModule,
     SurveyModule,
+<<<<<<< HEAD
     MidtermModule,
     SubjectModule,
+=======
+    ChatModule,
+>>>>>>> chat
   ],
   controllers: [],
   providers: [
