@@ -18,19 +18,15 @@ import { LeaveTypesModule } from './leave-types/leave-types.module';
 import { LeaveModule } from './leave/leave.module';
 import { SettingsModule } from './settings/settings.module';
 import { SurveyModule } from './survey/survey.module';
-<<<<<<< HEAD
 import { MidtermModule } from './midterm/midterm.module';
 import { SubjectModule } from './subject/subject.module';
+import { ChatModule } from './chat/chat.module';
 // Overriding the system resolvers is only safe when the platform DNS is
 // broken. On Render it can hang every outbound lookup (Atlas/host resolution),
 // so it stays opt-in via USE_CUSTOM_DNS=true.
 if (process.env.USE_CUSTOM_DNS === 'true') {
   dns.setServers(['1.1.1.1', '8.8.8.8']);
 }
-=======
-import { ChatModule } from './chat/chat.module';
-dns.setServers(["1.1.1.1","8.8.8.8"]);
->>>>>>> chat
 
 @Module({
   imports: [
@@ -82,12 +78,9 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
     LeaveModule,
     SettingsModule,
     SurveyModule,
-<<<<<<< HEAD
     MidtermModule,
     SubjectModule,
-=======
     ChatModule,
->>>>>>> chat
   ],
   controllers: [],
   providers: [
