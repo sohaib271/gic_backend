@@ -223,6 +223,22 @@ export class AuthService {
     const match = await bcrypt.compare(password, user.password);
     if (!match) throw new UnauthorizedException('Invalid credentials');
 
+    // Self-registered students wait for HOD/admin approval. Checked before
+    // isActive so the student sees the real reason rather than a generic
+    // "account disabled" message.
+    if (user.approvalStatus === 'pending') {
+      throw new ForbiddenException(
+        'Your application is still pending approval. Please wait for your HOD or the administration to approve it.',
+      );
+    }
+    if (user.approvalStatus === 'rejected') {
+      throw new ForbiddenException(
+        user.rejectionReason
+          ? `Your application was rejected: ${user.rejectionReason}`
+          : 'Your application was rejected. Please contact the administration.',
+      );
+    }
+
     // Block disabled (deactivated) accounts
     if (user.isActive === false) {
       throw new ForbiddenException(

@@ -34,6 +34,26 @@ export class User {
   @Prop({default:true})
   isActive?:boolean;
 
+  /* =======================
+     SELF-REGISTRATION APPROVAL
+  ======================== */
+
+  // Students who apply through a public registration link land here first and
+  // cannot log in until an HOD/admin approves them. Admin/HOD-created students
+  // never set this, so they stay 'approved' by default and keep logging in.
+  @Prop({ enum: ['pending', 'approved', 'rejected'], default: 'approved' })
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+
+  @Prop({ type: Date, default: null })
+  approvedAt?: Date | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  approvedBy?: Types.ObjectId | null;
+
+  // Why an application was turned down — shown to the student on next login.
+  @Prop({ default: null })
+  rejectionReason?: string | null;
+
   @Prop({default:'M',enum:['M','F']})
   gender?:string
 
