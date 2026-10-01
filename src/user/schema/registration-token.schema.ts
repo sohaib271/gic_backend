@@ -19,11 +19,13 @@ export class RegistrationToken {
 
   // "intermediate" | "bs" | "adp" — mirrors User.category. A null category
   // means the token accepts the whole department.
-  @Prop({ enum: ['intermediate', 'bs', 'adp', null], default: null })
+  // `type: String` is required: the `| null` union is ambiguous and Mongoose
+  // cannot infer the type on its own.
+  @Prop({ type: String, enum: ['intermediate', 'bs', 'adp', null], default: null })
   category?: string | null;
 
   // Locks the student to one class/semester. null = any class allowed.
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   class?: string | null;
 
   @Prop({ default: '2022-2026' })
@@ -42,13 +44,16 @@ export class RegistrationToken {
   @Prop({ type: Date, default: null })
   expiresAt?: Date | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User' })
-  createdBy?: Types.ObjectId;
+
+  // `type:` is required — a `Types.ObjectId | null` union is ambiguous and
+  // Mongoose cannot infer it from the TS annotation alone.
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  createdBy?: Types.ObjectId | null;
 
   // The HOD/admin department, so approval screens can scope the list without
   // walking every user's department.
-  @Prop({ type: Types.ObjectId, ref: 'Department' })
-  creatorDepartment?: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Department', default: null })
+  creatorDepartment?: Types.ObjectId | null;
 }
 
 export const RegistrationTokenSchema = SchemaFactory.createForClass(RegistrationToken);

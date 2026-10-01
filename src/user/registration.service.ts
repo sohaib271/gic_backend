@@ -182,8 +182,19 @@ export class RegistrationService {
     const category = tokenRecord.category
       ?? (department.category === 'intermediate' ? 'intermediate' : null);
 
-    if (category !== 'intermediate' && dto.interMarks === undefined) {
-      throw new BadRequestException('Inter marks are required for this programme');
+    // Resolved from the token, not the request body — this is the only place
+    // that knows the programme, so the inter-marks rule lives here.
+    if (category !== 'intermediate') {
+      if (dto.interMarks === undefined || dto.interMarks === null) {
+        throw new BadRequestException('Inter marks are required for this programme');
+      }
+      if (
+        Number.isNaN(Number(dto.interMarks)) ||
+        Number(dto.interMarks) < 0 ||
+        Number(dto.interMarks) > 1200
+      ) {
+        throw new BadRequestException('Inter marks must be between 0 and 1200');
+      }
     }
 
     // Duplicate checks up front give a readable message; the unique index is

@@ -77,13 +77,15 @@ export class RegisterStudentDto {
   @Max(1200, { message: 'Matric marks must be between 0 and 1200' })
   matricMarks!: number;
 
-  // Only BS/ADP students sit the inter test, so this is skipped for the
-  // intermediate programme. The controller fills category from the token
-  // before validation runs.
-  @ValidateIf((o) => o.category !== 'intermediate')
-  @IsNotEmpty({ message: 'Inter marks are required' })
+  // Inter marks are NOT validated here on purpose. Whether they are required
+  // depends on the programme, and that is only known from the registration
+  // token — which the service resolves after this DTO has been validated, so a
+  // @ValidateIf would see `category === undefined` and demand them even for
+  // intermediate students. The service checks presence and range for
+  // BS/ADP, and skips both for intermediate.
+  @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({}, { message: 'Inter marks must be a number' })
   @Min(0, { message: 'Inter marks must be between 0 and 1200' })
   @Max(1200, { message: 'Inter marks must be between 0 and 1200' })
   interMarks?: number;

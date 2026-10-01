@@ -51,7 +51,9 @@ export class User {
   approvedBy?: Types.ObjectId | null;
 
   // Why an application was turned down — shown to the student on next login.
-  @Prop({ default: null })
+  // `type: String` is required: a `string | null` union is ambiguous, and
+  // Mongoose cannot infer the type without it.
+  @Prop({ type: String, default: null })
   rejectionReason?: string | null;
 
   @Prop({default:'M',enum:['M','F']})
