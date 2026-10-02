@@ -7,7 +7,11 @@ import {
   Res,
 } from '@nestjs/common';
 import type * as express from 'express';
-import type { ImageService } from './image.service';
+// NOT `import type` — Nest reads the constructor's emitted design:paramtypes to
+// resolve ImageService, and a type-only import erases it at compile time, which
+// fails at boot with UnknownDependenciesException. `express.Response` is
+// type-only the other way around: it is a decorated signature, not injected.
+import { ImageService } from './image.service';
 
 @Controller('users/image')
 export class PublicImageController {
