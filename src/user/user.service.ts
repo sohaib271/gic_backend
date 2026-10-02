@@ -18,6 +18,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Department } from 'src/department/schema/department.schema';
 import { Class, ClassDocument } from 'src/class/schema/class.schema';
 import { Types } from 'mongoose';
+import { ImageService } from './image.service';
 
 @Injectable()
 export class UserService {
@@ -28,6 +29,7 @@ export class UserService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Department.name) private departmentModel: Model<Department>,
     @InjectModel(Class.name) private classModel: Model<ClassDocument>,
+    private readonly imageService: ImageService,
   ) {}
 
   hashPassword(password: string) {
@@ -337,6 +339,31 @@ const failed: {
   return obj;
 };
 
+  async uploadProfileImage(
+    userId: string,
+    file: Express.Multer.File,
+    baseUrl: string,
+  ) {
+    const user = await this.userModel.findById(userId).lean();
+    if (!user) throw new NotFoundException('User not found');
+
+    const saved = await this.imageService.save(file.buffer, userId);
+    const url = `${baseUrl}/users/image/${saved.id}`;
+
+    await this.userModel.findByIdAndUpdate(userId, { $set: { image: url } });
+
+    const previousId = this.imageService.extractId(user.image);
+    if (previousId) {
+      await this.imageService.remove(previousId);
+    }
+
+    return {
+      message: 'Image uploaded successfully',
+      image: url,
+      sizeBytes: saved.size,
+    };
+  }
+
   /* ======================
      GET USER BY ID
   ======================= */
@@ -523,6 +550,11 @@ async updateUser(id: string, updateData: any) {
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    const imageId = this.imageService.extractId(user.image);
+    if (imageId) {
+      await this.imageService.remove(imageId);
     }
 
     return {

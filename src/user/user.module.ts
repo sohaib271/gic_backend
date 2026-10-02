@@ -9,6 +9,8 @@ import { Class, ClassSchema } from 'src/class/schema/class.schema';
 import { RegistrationToken, RegistrationTokenSchema } from './schema/registration-token.schema';
 import { RegistrationService } from './registration.service';
 import { RegistrationController } from './registration.controller';
+import { ImageService } from './image.service';
+import { PublicImageController } from './public-image.controller';
 
 
 @Module({
@@ -20,8 +22,8 @@ import { RegistrationController } from './registration.controller';
       { name: RegistrationToken.name, schema: RegistrationTokenSchema },
     ]),
   ],
-  controllers: [UserController, RegistrationController],
-  providers: [UserService, RegistrationService],
+  controllers: [UserController, RegistrationController, PublicImageController],
+  providers: [UserService, RegistrationService, ImageService],
   exports: [UserService],
 })
 export class UserModule {}

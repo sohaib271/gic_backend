@@ -41,6 +41,38 @@ export class UserController {
     return this.userService.getLoggedInUser(req?.user.sub);
   }
 
+  @Post('me/image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: multer.memoryStorage(),
+      limits: {
+        fileSize: 8 * 1024 * 1024,
+        files: 1,
+      },
+      fileFilter: (_req, file, callback) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+        if (allowedTypes.includes(file.mimetype)) {
+          return callback(null, true);
+        }
+
+        callback(new BadRequestException('Only JPG, PNG or WEBP images are allowed'), false);
+      },
+    }),
+  )
+  uploadMyImage(
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+
+    return this.userService.uploadProfileImage(req?.user.sub, file, baseUrl);
+  }
+
   @Post('professor')
   @UseGuards(RolesGuard)
   @Roles("admin","hod") 
