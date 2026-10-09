@@ -63,27 +63,63 @@ export class RemarksService {
         .catch((err) => this.logger.error(`Remark notification failed: ${err}`));
     }
 
-    return saved;
+    return {
+      ...saved.toObject(),
+      authorImage: user.image || '',
+    };
+  }
+
+  /**
+   * Attach the author's profile image to each remark so the client can show
+   * the user's picture alongside the remark text. Images are looked up in one
+   * batch query instead of one per remark.
+   */
+  private async withAuthorImage(remarks: any[]) {
+    const authorIds = [
+      ...new Set(
+        remarks
+          .map((r) => r.authorId)
+          .filter((id) => id)
+          .map((id) => id.toString()),
+      ),
+    ];
+
+    const authors = await this.userModel
+      .find({ _id: { $in: authorIds } })
+      .select('image')
+      .lean()
+      .exec();
+
+    const imageByAuthor = new Map(
+      authors.map((a: any) => [a._id.toString(), a.image || '']),
+    );
+
+    return remarks.map((r) => ({
+      ...(r.toObject ? r.toObject() : r),
+      authorImage: imageByAuthor.get(r.authorId?.toString()) || '',
+    }));
   }
 
   async getRemarksByEntity(entityType: RemarkEntityType, entityId: string) {
     // For 'general' entity type, use entityId as-is (not a MongoDB ObjectId)
     const isGeneral = entityType === RemarkEntityType.GENERAL;
-    return this.remarkModel
+    const remarks = await this.remarkModel
       .find({
         entityType,
         entityId: isGeneral ? entityId : new Types.ObjectId(entityId),
       })
       .sort({ createdAt: 1 })
       .exec();
+    return this.withAuthorImage(remarks);
   }
 
   async getAllRemarks(entityType?: RemarkEntityType) {
     const query = entityType ? { entityType } : {};
-    return this.remarkModel
+    const remarks = await this.remarkModel
       .find(query)
       .sort({ createdAt: -1 })
       .exec();
+    return this.withAuthorImage(remarks);
   }
 
   async deleteRemark(remarkId: string, userId: string, userRole: string) {
