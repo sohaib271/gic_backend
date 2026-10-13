@@ -4,6 +4,14 @@ import { User } from 'src/user/schema/user.schema';
 
 export type MessageDocument = Message & Document;
 
+/** Snapshot of the quoted message stored on a reply at send time (WhatsApp-style). */
+export interface MessageReplyTo {
+  messageId: Types.ObjectId | null;
+  text: string;
+  senderId: Types.ObjectId | null;
+  senderName: string;
+}
+
 @Schema({ timestamps: true })
 export class Message {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Conversation', required: true })
@@ -14,6 +22,24 @@ export class Message {
 
   @Prop({ required: true })
   text!: string;
+
+  @Prop({
+    type: {
+      messageId: { type: SchemaTypes.ObjectId, default: null },
+      text: { type: String, default: '' },
+      senderId: { type: SchemaTypes.ObjectId, default: null },
+      senderName: { type: String, default: '' },
+    },
+    _id: false,
+    default: null,
+  })
+  replyTo?: MessageReplyTo | null;
+
+  @Prop({ default: false })
+  deleted!: boolean;
+
+  @Prop({ type: Date, default: null })
+  deletedAt?: Date | null;
 
   @Prop({ type: [{ type: SchemaTypes.ObjectId, ref: User.name }], default: [] })
   readBy!: Types.ObjectId[];

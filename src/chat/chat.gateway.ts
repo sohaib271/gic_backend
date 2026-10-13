@@ -7,13 +7,15 @@
  * Events:
  * - join             : User registers socket with their userId → joins "user:USER_ID" room
  * - leave            : User leaves room (logout)
- * - send_message     : { senderId, receiverId, text } → saves + delivers to receiver's room
+ * - send_message     : { senderId, receiverId, text, replyToMessageId? } → saves + delivers to receiver's room
+ * - delete_message   : { userId, messageId } → soft-deletes the message, notifies both
  * - typing           : { userId, conversationId, isTyping } → typing indicator
  * - message_read     : { userId, conversationId } → marks messages read, notifies both
  *
  * Delivered to clients:
  * - joined                : confirm join
  * - new_message           : new incoming message (sent to both sender & receiver rooms)
+ * - message_deleted       : { conversationId, messageId, deletedBy, deletedAt } → sent to all participants
  * - messages_read         : conversation read status updated
  * - typing                : peer typing indicator
  * - chat_error            : validation/rule errors (e.g. student→student blocked)
@@ -32,6 +34,7 @@ import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import {
+  SocketDeleteMessageDto,
   SocketReadMessagesDto,
   SocketSendMessageDto,
   SocketTypingDto,
@@ -116,6 +119,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         sender,
         data.receiverId,
         data.text,
+        data.replyToMessageId,
       );
 
       const payload = {
@@ -138,6 +142,45 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       const message = error?.message || 'Failed to send message';
       this.logger.error(`💬 send_message failed: ${message}`);
+      client.emit('chat_error', { message });
+    }
+  }
+
+  @SubscribeMessage('delete_message')
+  async handleDeleteMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: SocketDeleteMessageDto,
+  ) {
+    try {
+      const registeredUserId = this.socketUser.get(client.id);
+      if (!registeredUserId || registeredUserId !== data?.userId) {
+        client.emit('chat_error', {
+          message: 'userId mismatch with socket session',
+        });
+        return;
+      }
+
+      const result = await this.chatService.deleteMessage(
+        data.userId,
+        data.messageId,
+      );
+
+      const payload = {
+        conversationId: result.conversationId,
+        messageId: result.messageId,
+        deletedBy: result.deletedBy,
+        deletedAt: result.deletedAt,
+      };
+
+      // Both participants' connected devices get the tombstone in one shot.
+      for (const participantId of result.participantUserIds) {
+        this.server.to(`user:${participantId}`).emit('message_deleted', payload);
+      }
+
+      this.logger.log(`💬 Message deleted: ${data.messageId}`);
+    } catch (error) {
+      const message = error?.message || 'Failed to delete message';
+      this.logger.error(`💬 delete_message failed: ${message}`);
       client.emit('chat_error', { message });
     }
   }
@@ -167,22 +210,39 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      await this.chatService.markAsRead(data.userId, data.conversationId);
+      const result = await this.chatService.markAsRead(data.userId, data.conversationId);
 
-      const payload = {
-        conversationId: data.conversationId,
-        userId: data.userId,
-        readAt: new Date(),
-      };
-
-      this.server.to(`user:${data.userId}`).emit('messages_read', payload);
-      client.emit('messages_read', payload);
+      this.notifyMessagesRead(
+        data.conversationId,
+        data.userId,
+        result.participantUserIds,
+      );
 
       this.logger.log(`💬 User ${data.userId} read conversation ${data.conversationId}`);
     } catch (error) {
       const message = error?.message || 'Failed to mark as read';
       this.logger.error(`💬 message_read failed: ${message}`);
       client.emit('chat_error', { message });
+    }
+  }
+
+  /**
+   * Broadcasts a read-status update to every participant's connected devices.
+   * Shared by the REST `/read` endpoint and the socket `message_read` handler,
+   * so the message sender learns their messages were read either way.
+   */
+  public notifyMessagesRead(
+    conversationId: string,
+    userId: string,
+    participantUserIds: string[],
+  ) {
+    const payload = {
+      conversationId,
+      userId,
+      readAt: new Date(),
+    };
+    for (const participantId of participantUserIds) {
+      this.server.to(`user:${participantId}`).emit('messages_read', payload);
     }
   }
 }

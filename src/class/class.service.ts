@@ -1016,7 +1016,7 @@ async addTeacherSchedule(
       const struckOffRecord = await this.struckOffModel
         .findOne({studentId:student})
         .lean()
-        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department' })
+        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department image' })
         .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' })
         .populate({ path: 'history.actionBy', select: 'name lastName specialId role' });
       return {
@@ -1192,7 +1192,7 @@ async addTeacherSchedule(
         .skip(pagination.skip)
         .limit(pagination.limit)
         .lean()
-        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department' })
+        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department image' })
         .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' })
         .populate({ path: 'history.actionBy', select: 'name lastName specialId role' }),
       ]);
@@ -1231,7 +1231,7 @@ async addTeacherSchedule(
         .skip(pagination.skip)
         .limit(pagination.limit)
         .lean()
-        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department struckOff' })
+        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department struckOff image' })
         .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' })
         .populate({ path: 'history.actionBy', select: 'name lastName specialId role' }),
       ]);

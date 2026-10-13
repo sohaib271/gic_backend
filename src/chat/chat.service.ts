@@ -7,7 +7,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Conversation, ConversationDocument } from './conversation.schema';
-import { Message, MessageDocument } from './message.schema';
+import { Message, MessageDocument, MessageReplyTo } from './message.schema';
 import { User, UserDocument } from 'src/user/schema/user.schema';
 import { Class, ClassDocument } from 'src/class/schema/class.schema';
 import { UserRoleEnum } from 'src/user/enum/UserRole.enum';
@@ -275,7 +275,9 @@ export class ChatService {
     ]);
 
     return {
-      messages: messages.reverse(),
+      messages: messages
+        .reverse()
+        .map((m) => this.toMessageView(m as MessageDocument)),
       total,
       page,
       limit,
@@ -302,6 +304,11 @@ export class ChatService {
     return {
       success: true,
       marked: result.modifiedCount,
+      conversationId: conversation._id,
+      userId,
+      // Participants let the caller broadcast the read event to every side,
+      // including the message sender whose app otherwise never finds out.
+      participantUserIds: conversation.participants.map((p) => p.toString()),
     };
   }
 
@@ -309,7 +316,12 @@ export class ChatService {
   // SEND MESSAGE
   // ============================================================
 
-  async createMessage(sender: any, receiverId: string, text: string) {
+  async createMessage(
+    sender: any,
+    receiverId: string,
+    text: string,
+    replyToMessageId?: string,
+  ) {
     const receiver = await this.userModel.findById(receiverId).lean();
     if (!receiver) throw new NotFoundException('Receiver not found');
 
@@ -319,10 +331,35 @@ export class ChatService {
 
     const { conversation } = await this.getOrCreateConversation(sender, receiverId);
 
+    // Reply: snapshot the quoted message at send time (WhatsApp-style), so the
+    // quote survives even if the original message is later deleted. Only quotes
+    // from the same conversation are accepted; anything else is ignored.
+    let replyTo: MessageReplyTo | null = null;
+    if (replyToMessageId) {
+      const quoted = await this.messageModel.findById(replyToMessageId).lean();
+      if (
+        quoted &&
+        quoted.conversationId.toString() === conversation._id.toString()
+      ) {
+        const quotedSender = await this.userModel
+          .findById(quoted.senderId)
+          .lean();
+        replyTo = {
+          messageId: quoted._id,
+          text: quoted.text,
+          senderId: quoted.senderId,
+          senderName: quotedSender
+            ? `${quotedSender.name || ''} ${quotedSender.lastName || ''}`.trim()
+            : '',
+        };
+      }
+    }
+
     const message = await this.messageModel.create({
       conversationId: conversation._id,
       senderId: new Types.ObjectId(sender._id.toString()),
       text: text.trim(),
+      replyTo,
       readBy: [new Types.ObjectId(sender._id.toString())],
     });
 
@@ -361,6 +398,53 @@ export class ChatService {
   }
 
   // ============================================================
+  // DELETE MESSAGE (soft delete)
+  // ============================================================
+
+  async deleteMessage(userId: string, messageId: string) {
+    const me = new Types.ObjectId(userId);
+
+    const message = await this.messageModel.findById(messageId).lean();
+    if (!message) throw new NotFoundException('Message not found');
+
+    if (message.senderId.toString() !== me.toString()) {
+      throw new ForbiddenException('You can only delete your own messages');
+    }
+
+    const deletedAt = new Date();
+    await this.messageModel.updateOne(
+      { _id: message._id },
+      { deleted: true, deletedAt },
+    );
+
+    const conversation = await this.conversationModel
+      .findById(message.conversationId)
+      .lean();
+
+    // If the deleted message was the thread's preview, blank it so the
+    // conversation list does not keep showing text the user deleted.
+    if (
+      conversation &&
+      conversation.lastMessage?.toString() === message._id.toString()
+    ) {
+      await this.conversationModel.updateOne(
+        { _id: conversation._id },
+        { lastMessageText: null },
+      );
+    }
+
+    return {
+      conversationId: message.conversationId,
+      messageId: message._id,
+      deletedBy: userId,
+      deletedAt,
+      participantUserIds: (conversation?.participants || []).map((p) =>
+        p.toString(),
+      ),
+    };
+  }
+
+  // ============================================================
   // VIEW MAPPERS
   // ============================================================
 
@@ -390,11 +474,15 @@ export class ChatService {
   }
 
   private toMessageView(message: MessageDocument) {
+    const isDeleted = !!message.deleted;
     return {
       _id: message._id,
       conversationId: message.conversationId,
       senderId: message.senderId,
-      text: message.text,
+      text: isDeleted ? '' : message.text,
+      replyTo: message.replyTo || null,
+      deleted: isDeleted,
+      deletedAt: message.deletedAt || null,
       readBy: message.readBy,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,

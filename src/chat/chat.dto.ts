@@ -12,6 +12,10 @@ export class SocketSendMessageDto {
   @IsString()
   @IsNotEmpty()
   text: string;
+
+  @IsOptional()
+  @IsString()
+  replyToMessageId?: string;
 }
 
 export class SocketTypingDto {
@@ -52,6 +56,20 @@ export class SendMessageDto {
   @IsString()
   @IsNotEmpty()
   text: string;
+
+  @IsOptional()
+  @IsString()
+  replyToMessageId?: string;
+}
+
+export class SocketDeleteMessageDto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  messageId: string;
 }
 
 export class GetMessagesQueryDto {

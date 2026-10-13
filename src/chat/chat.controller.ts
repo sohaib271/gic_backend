@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -11,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { ChatService } from './chat.service';
+import { ChatGateway } from './chat.gateway';
 import {
   CreateConversationDto,
   GetMessagesQueryDto,
@@ -20,7 +22,10 @@ import {
 @Controller('chat')
 @UseGuards(AuthGuard)
 export class ChatController {
-  constructor(private chatService: ChatService) {}
+  constructor(
+    private chatService: ChatService,
+    private chatGateway: ChatGateway,
+  ) {}
 
   @Get('contacts')
   async getContacts(@Request() req, @Query('q') q?: string) {
@@ -62,12 +67,34 @@ export class ChatController {
     @Request() req,
     @Param('conversationId') conversationId: string,
   ) {
-    return this.chatService.markAsRead(req.user.sub, conversationId);
+    const result = await this.chatService.markAsRead(
+      req.user.sub,
+      conversationId,
+    );
+    // Emit the read event right here (not just via the socket handler) so the
+    // sender's app learns the messages were read even when the reader went
+    // through the REST /read endpoint.
+    this.chatGateway.notifyMessagesRead(
+      conversationId,
+      req.user.sub,
+      result.participantUserIds,
+    );
+    return result;
   }
 
   @Post('messages')
   async sendMessage(@Request() req, @Body() dto: SendMessageDto) {
     const user = await this.chatService.getRawUser(req.user.sub);
-    return this.chatService.createMessage(user, dto.receiverId, dto.text);
+    return this.chatService.createMessage(
+      user,
+      dto.receiverId,
+      dto.text,
+      dto.replyToMessageId,
+    );
+  }
+
+  @Delete('messages/:messageId')
+  async deleteMessage(@Request() req, @Param('messageId') messageId: string) {
+    return this.chatService.deleteMessage(req.user.sub, messageId);
   }
 }
