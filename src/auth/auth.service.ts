@@ -274,6 +274,7 @@ export class AuthService {
       sub: user._id,
       role: user.role,
       department: user.department,
+      isHod: user.isHod === true,
     };
 
     // Convert to plain object and drop sensitive fields. `verifyToken` is the

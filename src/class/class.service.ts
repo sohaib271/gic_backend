@@ -1195,12 +1195,44 @@ async addTeacherSchedule(
       const pagination = this.getPagination(page, limit);
       const filter: any = { 'currentStatus.status': 'struck_off' };
 
-      // Scope: admin → sab dekhta hai; HOD → sirf apna department; proff → sirf jisne strike-off kiya
-      if (user) {
-        if (user.role === 'hod' && user.department) {
-          filter['studentId.department'] = new Types.ObjectId(user.department);
-        } else if (user.role === 'proff' && !user.isHod) {
-          filter['currentStatus.actionBy'] = new Types.ObjectId(user.sub);
+      // Resolve effective HOD flag robustly — old JWTs (issued before the
+      // `isHod` field was added to the payload) don't carry it, so fetch the
+      // source user document when it is missing.
+      let effectiveUser: any = user;
+      if (user?.sub && user?.isHod === undefined) {
+        const dbUser = await this.userModel
+          .findById(user.sub)
+          .select('_id role isHod department')
+          .lean();
+        if (dbUser) {
+          effectiveUser = { ...user, role: dbUser.role, isHod: dbUser.isHod, department: dbUser.department ?? user.department };
+        }
+      }
+
+      if (effectiveUser) {
+        if (effectiveUser.role === 'admin') {
+          // admin sees all — no additional filter
+        } else if (effectiveUser.isHod === true && effectiveUser.department) {
+          // HOD sees only their department's students
+          const deptStudentIds = await this.userModel
+            .find({ role: 'student', department: new Types.ObjectId(effectiveUser.department) })
+            .select('_id')
+            .lean();
+          const ids = deptStudentIds.map((s: any) => s._id);
+          if (ids.length === 0) {
+            return {
+              count: 0,
+              total: 0,
+              page: pagination.page,
+              limit: pagination.limit,
+              totalPages: 1,
+              struckOffStudents: [],
+            };
+          }
+          filter.studentId = { $in: ids };
+        } else {
+          // Regular proff sees only students they struck off
+          filter['currentStatus.actionBy'] = new Types.ObjectId(effectiveUser.sub);
         }
       }
       const [total, struckOffStudents] = await Promise.all([
