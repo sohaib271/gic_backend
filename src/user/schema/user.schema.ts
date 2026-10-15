@@ -36,7 +36,7 @@ export class User {
 
   /* =======================
      SELF-REGISTRATION APPROVAL
-  ======================== */
+   ======================== */
 
   // Students who apply through a public registration link land here first and
   // cannot log in until an HOD/admin approves them. Admin/HOD-created students
@@ -82,6 +82,9 @@ export class User {
   @Prop({ default: false })
   is_leave_approved?: boolean;
 
+  @Prop({ default: false })
+  is_leave_expired?: boolean;
+
   @Prop({ required: true })
   lastName!: string;
 
@@ -114,7 +117,7 @@ export class User {
 
   /* =======================
      STUDENT FIELDS
-  ======================== */
+   ======================== */
 
   @Prop({ type: Types.ObjectId, ref: 'Department' })
   department?: Types.ObjectId;
@@ -142,8 +145,8 @@ export class User {
 
   /* =======================
      PROFESSOR FIELDS
-     (ONLY FOR PROFESSOR)
-  ======================== */
+      (ONLY FOR PROFESSOR)
+   ======================== */
 
   @Prop({ default: false })
   isHod?: boolean;
@@ -160,9 +163,15 @@ export class User {
   @Prop()
   experience?: number;
 
+  @Prop({ default: false })
+  is_CTI?: boolean;
+
+  @Prop({ default: false })
+  is_permanent?: boolean;
+
   /* =======================
      STAFF FIELDS
-  ======================== */
+   ======================== */
 
   @Prop()
   designation?: string;

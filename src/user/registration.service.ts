@@ -21,6 +21,7 @@ import {
   RegisterStudentDto,
   ReviewRegistrationDto,
 } from './dto/create-user.dto/register-student.dto';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class RegistrationService {
@@ -30,6 +31,7 @@ export class RegistrationService {
     private readonly departmentModel: Model<DepartmentDocument>,
     @InjectModel(RegistrationToken.name)
     private readonly tokenModel: Model<RegistrationTokenDocument>,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ── Token minting (HOD/admin only, guarded in the controller) ──
@@ -266,6 +268,37 @@ export class RegistrationService {
         { $inc: { usedCount: 1 } },
       );
 
+      // 🔔 Notify department HOD about new registration
+      const departmentId = tokenRecord.department?.toString?.();
+      if (departmentId) {
+        const hods = await this.userModel
+          .find({ isHod: true, department: new Types.ObjectId(departmentId) })
+          .select('_id')
+          .lean();
+        const hodIds = hods.map((h) => h._id.toString());
+
+        if (hodIds.length > 0) {
+          this.notificationService
+            .createBulk({
+              userIds: hodIds,
+              senderId: student._id.toString(),
+              senderName: `${student.name} ${student.lastName}`.trim(),
+              senderRole: 'student',
+              type: 'general',
+              title: 'New Registration Request',
+              message: `${student.name} ${student.lastName} has registered and is pending approval.`,
+              data: {
+                notification_type: '21',
+                studentId: student._id.toString(),
+                specialId: student.specialId,
+                department: departmentId,
+              },
+              classNames: [],
+            })
+            .catch((err) => console.error('HOD notification failed:', err));
+        }
+      }
+
       return {
         message:
           'Application submitted. You will be able to log in once it is approved by your HOD or the administration.',
@@ -339,6 +372,29 @@ export class RegistrationService {
     student.isActive = approved;
 
     await student.save();
+
+    // 🔔 Notify student about approval/rejection decision
+    this.notificationService
+      .create({
+        userId: student._id.toString(),
+        senderId: reviewerId,
+        senderName: 'Admin',
+        senderRole: 'admin',
+        type: 'general',
+        title: approved ? 'Registration Approved' : 'Registration Rejected',
+        message: approved
+          ? 'Your registration has been approved. You can now log in.'
+          : `Your registration has been rejected. Reason: ${student.rejectionReason ?? 'No reason provided'}`,
+        data: {
+          notification_type: approved ? '22' : '23',
+          studentId: student._id.toString(),
+          specialId: student.specialId,
+          decision: approved ? 'approved' : 'rejected',
+          reason: student.rejectionReason,
+        },
+        classNames: [],
+      })
+      .catch((err) => console.error('Student notification failed:', err));
 
     return {
       message: approved

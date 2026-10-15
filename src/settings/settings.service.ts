@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Setting, SettingDocument } from './schema/setting.schema';
 import { User, UserDocument } from 'src/user/schema/user.schema';
 import { UserRoleEnum } from 'src/user/enum/UserRole.enum';
@@ -45,6 +45,70 @@ export class SettingsService {
   }
 
   /**
+   * Reads a setting for a specific department. Falls back to the global
+   * (departmentId = null) row when no department-specific override exists,
+   * then to the hardcoded default.
+   */
+  async getDepartmentSetting(
+    key: string,
+    departmentId?: string | null,
+  ): Promise<any> {
+    if (departmentId) {
+      const deptDoc = await this.settingModel
+        .findOne({ key, departmentId: new Types.ObjectId(departmentId) })
+        .lean()
+        .exec();
+      if (deptDoc) return deptDoc.value;
+    }
+
+    // Fall back to global
+    const globalDoc = await this.settingModel
+      .findOne({ key, departmentId: null })
+      .lean()
+      .exec();
+    return globalDoc?.value ?? APP_SETTING_DEFAULTS[key] ?? null;
+  }
+
+  /**
+   * Reads multiple settings for a specific department in one query.
+   * Returns a map of key -> value, with global fallback for missing overrides.
+   */
+  async getDepartmentSettings(
+    keys: string[],
+    departmentId?: string | null,
+  ): Promise<Record<string, any>> {
+    const result: Record<string, any> = {};
+
+    // Fetch all matching docs (both global and department-specific) in one query
+    const filter: any = { key: { $in: keys }, $or: [{ departmentId: null }] };
+    if (departmentId) {
+      filter.$or.push({ departmentId: new Types.ObjectId(departmentId) });
+    }
+
+    const docs = await this.settingModel.find(filter).lean().exec();
+
+    // Build a lookup: dept-specific wins over global
+    const lookup: Record<string, { global?: any; dept?: any }> = {};
+    for (const key of keys) lookup[key] = {};
+
+    for (const doc of docs) {
+      const entry = lookup[doc.key] ?? (lookup[doc.key] = {});
+      if (doc.departmentId) {
+        entry.dept = doc.value;
+      } else {
+        entry.global = doc.value;
+      }
+    }
+
+    for (const key of keys) {
+      const entry = lookup[key] ?? {};
+      result[key] = entry.dept ?? entry.global ?? APP_SETTING_DEFAULTS[key] ?? null;
+    }
+
+    return result;
+  }
+
+  /**
    * Admins and department HODs may both change settings. The HOD check reads
    * the user record instead of trusting the token, since the JWT carries only
    * `sub` and `role` and cannot express "is a head of department".
@@ -61,6 +125,87 @@ export class SettingsService {
       .exec();
 
     return doc;
+  }
+
+  /**
+   * Sets a department-specific setting. Admins can set for any department;
+   * HODs can only set for their own department.
+   */
+  async setDepartmentSetting(
+    key: string,
+    value: any,
+    departmentId: string,
+    actor: Actor,
+  ) {
+    await this.assertCanUpdate(actor);
+
+    // HODs can only modify their own department's settings
+    if (actor.role !== UserRoleEnum.ADMIN) {
+      if (actor.role === UserRoleEnum.PROFF && actor.sub) {
+        const user = await this.userModel
+          .findById(actor.sub)
+          .select('department')
+          .lean()
+          .exec();
+        if (user?.department?.toString() !== departmentId) {
+          throw new ForbiddenException(
+            'You can only modify settings for your own department',
+          );
+        }
+      } else {
+        throw new ForbiddenException(
+          'Only admin or HOD can update department settings',
+        );
+      }
+    }
+
+    const doc = await this.settingModel
+      .findOneAndUpdate(
+        { key, departmentId: new Types.ObjectId(departmentId) },
+        { value },
+        { new: true, upsert: true, setDefaultsOnInsert: true },
+      )
+      .exec();
+
+    return doc;
+  }
+
+  /**
+   * Removes a department-specific override, causing the department to fall
+   * back to the global setting.
+   */
+  async deleteDepartmentSetting(
+    key: string,
+    departmentId: string,
+    actor: Actor,
+  ) {
+    await this.assertCanUpdate(actor);
+
+    // HODs can only delete their own department's settings
+    if (actor.role !== UserRoleEnum.ADMIN) {
+      if (actor.role === UserRoleEnum.PROFF && actor.sub) {
+        const user = await this.userModel
+          .findById(actor.sub)
+          .select('department')
+          .lean()
+          .exec();
+        if (user?.department?.toString() !== departmentId) {
+          throw new ForbiddenException(
+            'You can only modify settings for your own department',
+          );
+        }
+      } else {
+        throw new ForbiddenException(
+          'Only admin or HOD can update department settings',
+        );
+      }
+    }
+
+    await this.settingModel
+      .findOneAndDelete({ key, departmentId: new Types.ObjectId(departmentId) })
+      .exec();
+
+    return { message: 'Department setting removed, using global default' };
   }
 
   private async assertCanUpdate(actor: Actor): Promise<void> {

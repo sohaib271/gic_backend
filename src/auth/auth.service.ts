@@ -273,6 +273,7 @@ export class AuthService {
     const payload = {
       sub: user._id,
       role: user.role,
+      department: user.department,
     };
 
     // Convert to plain object and drop sensitive fields. `verifyToken` is the

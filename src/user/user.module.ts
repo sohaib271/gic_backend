@@ -4,6 +4,7 @@ import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { User, UserSchema } from './schema/user.schema';
 import { AuthModule } from 'src/auth/auth.module';
+import { NotificationModule } from 'src/notification/notification.module';
 import { Department, DepartmentSchema } from 'src/department/schema/department.schema';
 import { Class, ClassSchema } from 'src/class/schema/class.schema';
 import { RegistrationToken, RegistrationTokenSchema } from './schema/registration-token.schema';
@@ -15,6 +16,8 @@ import { PublicImageController } from './public-image.controller';
 
 @Module({
   imports: [AuthModule,
+    // NotificationService for registration approval/rejection alerts
+    NotificationModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Department.name, schema: DepartmentSchema },

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
   HttpException,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -508,6 +509,107 @@ async getTeacherSchedule(teacherId: string, page?: number, limit?: number) {
     );
 
     return { studentId, timetable: groupedTimetable };
+  }
+
+  /**
+   * Student ki aaj ki lectures — teacher ke getTodayLectures jaisa hi,
+   * lekin JWT se student identify hota hai, studentId URL mein pass nahi karni.
+   */
+  async getStudentTodayLectures(studentId: string) {
+    const student = await this.userModel
+      .findOne({ _id: studentId, role: 'student' })
+      .select('_id name lastName')
+      .lean();
+
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
+    // Pakistan Standard Time (UTC+5) — teacher service jaisa hi logic
+    const now = new Date();
+    const pktOffset = 5 * 60;
+    const pktNow = new Date(now.getTime() + (pktOffset + now.getTimezoneOffset()) * 60000);
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = dayNames[pktNow.getDay()];
+    const todayStr = pktNow.toISOString().split('T')[0];
+    const nowTotal = pktNow.getHours() * 60 + pktNow.getMinutes();
+
+    const classes = await this.classModel
+      .find({ classStudents: studentId })
+      .populate({ path: 'assignes.teacherId', select: 'name lastName' })
+      .select('className class session category assignes');
+
+    if (classes.length === 0) {
+      return {
+        date: todayStr,
+        day: dayName,
+        currentTime: `${String(Math.floor(nowTotal / 60)).padStart(2, '0')}:${String(nowTotal % 60).padStart(2, '0')}`,
+        totalLectures: 0,
+        liveLecture: null,
+        lectures: [],
+      };
+    }
+
+    const lectures: any[] = [];
+
+    for (const cls of classes) {
+      for (const assignment of (cls as any).assignes ?? []) {
+        for (const slot of assignment.schedule ?? []) {
+          if ((slot.day ?? '').toLowerCase() !== dayName.toLowerCase()) continue;
+
+          const startTotal = this.timeToMinutes(slot.startTime);
+          const endTotal = this.timeToMinutes(slot.endTime);
+          if (startTotal === null || endTotal === null) continue;
+
+          let status: 'upcoming' | 'live' | 'finished';
+          if (nowTotal < startTotal) status = 'upcoming';
+          else if (nowTotal <= endTotal) status = 'live';
+          else status = 'finished';
+
+          const teacher = (assignment.teacherId as any)?._id ? assignment.teacherId : null;
+
+          lectures.push({
+            classId: String((cls as any)._id),
+            className: (cls as any).className,
+            classLevel: (cls as any).class ?? null,
+            session: (cls as any).session ?? null,
+            category: (cls as any).category ?? null,
+            subject: assignment.subject ?? null,
+            subjectId: assignment.subjectId ?? null,
+            teacherId: teacher?._id ?? null,
+            teacherName: teacher
+              ? `${teacher.name} ${teacher.lastName ?? ''}`.trim()
+              : 'Unknown',
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            status,
+          });
+        }
+      }
+    }
+
+    lectures.sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    const liveCandidates = lectures.filter((l) => l.status === 'live');
+    const liveLecture = liveCandidates.length > 0 ? liveCandidates[0] : null;
+
+    return {
+      date: todayStr,
+      day: dayName,
+      currentTime: `${String(Math.floor(nowTotal / 60)).padStart(2, '0')}:${String(nowTotal % 60).padStart(2, '0')}`,
+      totalLectures: lectures.length,
+      liveLecture,
+      lectures,
+    };
+  }
+
+  private timeToMinutes(hhmm: string): number | null {
+    const match = /^(\d{1,2}):(\d{2})/.exec(hhmm);
+    if (!match) return null;
+    const h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    if (h > 23 || m > 59) return null;
+    return h * 60 + m;
   }
 
   /* ======================

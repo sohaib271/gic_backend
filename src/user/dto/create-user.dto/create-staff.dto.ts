@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, IsBoolean } from 'class-validator';
 import { CreateBaseUserDto } from './create-base-user.dto';
 
 export class CreateStaffDto extends CreateBaseUserDto {
@@ -8,4 +8,12 @@ export class CreateStaffDto extends CreateBaseUserDto {
 
   @IsString()
   department: string;
+
+  @IsOptional()
+  @IsBoolean()
+  is_CTI?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  is_permanent?: boolean;
 }

@@ -40,27 +40,42 @@ export class RemarksService {
 
     const saved = await remark.save();
 
-    // Notify the student when a remark is created on their record.
+    // Notify department HOD + admin when a remark is created on a student.
     // Mobile opens RemarksScreen when data.notification_type === '13'.
     if (!isGeneral && entityType === RemarkEntityType.STUDENT) {
-      this.notificationService
-        .create({
-          userId: entityId,
-          senderId: userId,
-          senderName: user.name,
-          senderRole: user.role,
-          type: 'general',
-          title: 'New Remark',
-          message: text?.trim() || 'You have a new remark',
-          data: {
-            notification_type: '13',
-            entityType,
-            entityId,
-            authorName: user.name,
-          },
-          classNames: [],
-        })
-        .catch((err) => this.logger.error(`Remark notification failed: ${err}`));
+      const student = await this.userModel.findById(entityId).select('department').lean();
+      const departmentId = (student as any)?.department?.toString?.();
+
+      const query: any = { $or: [{ role: 'admin' }] };
+      if (departmentId) {
+        query.$or.push({ isHod: true, department: new Types.ObjectId(departmentId) });
+      } else {
+        query.$or.push({ isHod: true });
+      }
+
+      const recipients = await this.userModel.find(query).select('_id').lean();
+      const recipientIds = recipients.map((r) => r._id.toString());
+
+      if (recipientIds.length > 0) {
+        this.notificationService
+          .createBulk({
+            userIds: recipientIds,
+            senderId: userId,
+            senderName: user.name,
+            senderRole: user.role,
+            type: 'general',
+            title: 'New Remark',
+            message: text?.trim() || 'You have a new remark',
+            data: {
+              notification_type: '13',
+              entityType,
+              entityId,
+              authorName: user.name,
+            },
+            classNames: [],
+          })
+          .catch((err) => this.logger.error(`Remark notification failed: ${err}`));
+      }
     }
 
     return {

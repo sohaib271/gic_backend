@@ -142,8 +142,8 @@ addTeacherSchedule(
   @UseGuards(RolesGuard)
   @Roles("admin","hod","proff")
   @Get('struck-off-students')
-  getStruckOffStudents(@Query('page') page?: string, @Query('limit') limit?: string){
-    return this.classservice.getStruckOffStudents(Number(page), Number(limit));
+  getStruckOffStudents(@Query('page') page?: string, @Query('limit') limit?: string, @Req() req?: any){
+    return this.classservice.getStruckOffStudents(Number(page), Number(limit), req?.user);
   }
 
   @UseGuards(RolesGuard)

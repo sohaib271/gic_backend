@@ -145,6 +145,14 @@ bulkUploadStudents(
     return this.userService.getStudentTimetable(studentId);
   }
 
+  // Student ki aaj ki lectures — JWT se student identify hota hai
+  @Get('student/today-lectures')
+  @UseGuards(RolesGuard)
+  @Roles('student')
+  getStudentTodayLectures(@Req() req: any) {
+    return this.userService.getStudentTodayLectures(req.user.sub);
+  }
+
   @Get('special/:specialId')
   getUserBySpecialId(@Param('specialId') specialId: string) {
     return this.userService.getUserBySpecialId(specialId);

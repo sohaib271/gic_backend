@@ -34,7 +34,7 @@ export type ResolvedScheduleEntry = {
  */
 const CLASS_STUDENT_FIELDS =
   'name lastName specialId class rollNo gender image isActive struckOff ' +
-  'is_apply_leave is_leave_approved';
+  'is_apply_leave is_leave_approved is_leave_expired';
 
 @Injectable()
 export class ClassService {
@@ -553,15 +553,23 @@ async getAssignedTeacherList(classId:string){
     })
     .catch((err) => this.logger.error(`Teacher assigned notification failed: ${err}`));
 
-  // 🔔 Notify admin/hod/principal
-  this.notifyStaff(
-    actor,
-    'Teacher Added to Class',
-    `${teacherName} has been added to teach ${displaySubject} in ${className}.`,
-    { classId, className: className, ...(subjectId !== undefined ? { subjectId } : {}) },
-    className,
-    dto.teacherId,
-  );
+  // 🔔 Notify department HOD + admin only
+  const departmentId = (teacher as any)?.department?.toString?.() || (teacher as any)?.departmentId?.toString?.();
+  this.getDepartmentHodAndAdminIds(departmentId).then((hodAdminIds) => {
+    const recipients = hodAdminIds.filter((id) => id !== dto.teacherId);
+    if (recipients.length === 0) return Promise.resolve(0);
+    return this.notificationService.createBulk({
+      userIds: recipients,
+      senderId: actor.senderId,
+      senderName: actor.senderName,
+      senderRole: actor.senderRole,
+      type: 'class',
+      title: 'Teacher Added to Class',
+      message: `${teacherName} has been added to teach ${displaySubject} in ${className}.`,
+      data: { classId, className, ...(subjectId !== undefined ? { subjectId } : {}) },
+      classNames: [className],
+    });
+  }).catch((err) => this.logger.error(`Teacher added staff notification failed: ${err}`));
 
   return {
     message: "Teacher assigned successfully",
@@ -633,15 +641,23 @@ async updateTeacherSchedule(classId: string, teacherId: string, schedule: Schedu
     })
     .catch((err) => this.logger.error(`Teacher schedule notification failed: ${err}`));
 
-  // 🔔 Notify admin/hod/principal
-  this.notifyStaff(
-    actor,
-    'Teacher Schedule Updated',
-    `A teacher's schedule has been updated in ${className}.`,
-    { classId, className: className },
-    className,
-    teacherId,
-  );
+  // 🔔 Notify department HOD + admin only
+  const departmentId = (await this.userModel.findById(teacherId).select('department').lean())?.department?.toString?.();
+  this.getDepartmentHodAndAdminIds(departmentId).then((hodAdminIds) => {
+    const recipients = hodAdminIds.filter((id) => id !== teacherId);
+    if (recipients.length === 0) return Promise.resolve(0);
+    return this.notificationService.createBulk({
+      userIds: recipients,
+      senderId: actor.senderId,
+      senderName: actor.senderName,
+      senderRole: actor.senderRole,
+      type: 'class',
+      title: 'Teacher Schedule Updated',
+      message: `A teacher's schedule has been updated in ${className}.`,
+      data: { classId, className },
+      classNames: [className],
+    });
+  }).catch((err) => this.logger.error(`Teacher schedule staff notification failed: ${err}`));
 
   return {
     message: "Schedule updated successfully",
@@ -766,7 +782,7 @@ async addTeacherSchedule(
       ? [student.name, student.lastName].filter(Boolean).join(' ')
       : 'A student';
 
-    // 🔔 Notify the student
+    // 🔔 Notify only the student (no staff notification)
     this.notificationService
       .create({
         userId: studentId,
@@ -778,16 +794,6 @@ async addTeacherSchedule(
         classNames: [className],
       })
       .catch((err) => this.logger.error(`Student added notification failed: ${err}`));
-
-    // 🔔 Notify admin/hod/principal
-    this.notifyStaff(
-      actor,
-      'Student Added to Class',
-      `${studentName} has been added to ${className}.`,
-      { classId, className: className },
-      className,
-      studentId,
-    );
 
     return {
       message:"Student added successfully"
@@ -827,15 +833,23 @@ async addTeacherSchedule(
       })
       .catch((err) => this.logger.error(`Student removed notification failed: ${err}`));
 
-    // 🔔 Notify admin/hod/principal
-    this.notifyStaff(
-      actor,
-      'Student Removed from Class',
-      `${studentName} has been removed from ${className}.`,
-      { classId, className: className },
-      className,
-      studentId,
-    );
+    // 🔔 Notify department HOD + admin only
+    const departmentId = (student as any)?.department?.toString?.() || (student as any)?.departmentId?.toString?.();
+    this.getDepartmentHodAndAdminIds(departmentId).then((hodAdminIds) => {
+      const recipients = hodAdminIds.filter((id) => id !== studentId);
+      if (recipients.length === 0) return Promise.resolve(0);
+      return this.notificationService.createBulk({
+        userIds: recipients,
+        senderId: actor.senderId,
+        senderName: actor.senderName,
+        senderRole: actor.senderRole,
+        type: 'class',
+        title: 'Student Removed from Class',
+        message: `${studentName} has been removed from ${className}.`,
+        data: { classId, className },
+        classNames: [className],
+      });
+    }).catch((err) => this.logger.error(`Student removed staff notification failed: ${err}`));
 
     return {
       message:"Student has been removed from class",
@@ -950,32 +964,28 @@ async addTeacherSchedule(
       })
       .catch((err) => this.logger.error(`Struck-off student notification failed: ${err}`));
 
-    // 🔔 Notify admin/hod/proff (their StruckOffStudentsScreen can open this list)
-    const staff = await this.userModel
-      .find({ role: { $in: ['admin', 'hod', 'proff'] } })
-      .select('_id')
-      .lean();
-
-    if (staff.length > 0) {
-      this.notificationService
-        .createBulk({
-          userIds: staff.map((s) => s._id.toString()),
-          senderId: actionBy,
-          senderName: 'Admin',
-          senderRole: 'admin',
-          type: 'general',
-          title: 'Student Struck Off',
-          message: `A student has been struck off from ${className}. Reason: ${reason}`,
-          data: {
-            notification_type: '1',
-            classId,
-            className,
-            reason,
-          },
-          classNames: [className],
-        })
-        .catch((err) => this.logger.error(`Struck-off staff notification failed: ${err}`));
-    }
+    // 🔔 Notify the acting proff + department HOD + admin
+    const studentDept = (student as any)?.department?.toString?.() || (student as any)?.departmentId?.toString?.();
+    this.getProffHodAdminIds(actionBy, studentDept).then((recipientIds) => {
+      const uniqueRecipients = [...new Set(recipientIds)];
+      if (uniqueRecipients.length === 0) return Promise.resolve(0);
+      return this.notificationService.createBulk({
+        userIds: uniqueRecipients,
+        senderId: actionBy,
+        senderName: 'Admin',
+        senderRole: 'admin',
+        type: 'general',
+        title: 'Student Struck Off',
+        message: `A student has been struck off from ${className}. Reason: ${reason}`,
+        data: {
+          notification_type: '1',
+          classId,
+          className,
+          reason,
+        },
+        classNames: [className],
+      });
+    }).catch((err) => this.logger.error(`Struck-off staff notification failed: ${err}`));
 
     return {
       message: 'Student has been struck off successfully',
@@ -1180,10 +1190,19 @@ async addTeacherSchedule(
     };
   }
 
-  async getStruckOffStudents(page?: number, limit?: number){
+  async getStruckOffStudents(page?: number, limit?: number, user?: any){
     try {
       const pagination = this.getPagination(page, limit);
-      const filter = { 'currentStatus.status': 'struck_off' };
+      const filter: any = { 'currentStatus.status': 'struck_off' };
+
+      // Scope: admin → sab dekhta hai; HOD → sirf apna department; proff → sirf jisne strike-off kiya
+      if (user) {
+        if (user.role === 'hod' && user.department) {
+          filter['studentId.department'] = new Types.ObjectId(user.department);
+        } else if (user.role === 'proff' && !user.isHod) {
+          filter['currentStatus.actionBy'] = new Types.ObjectId(user.sub);
+        }
+      }
       const [total, struckOffStudents] = await Promise.all([
         this.struckOffModel.countDocuments(filter),
         this.struckOffModel
@@ -1253,6 +1272,39 @@ async addTeacherSchedule(
     }
   }
 
+  // Auto-remove students whose strike-off period has expired
+  async removeExpiredStruckOff(): Promise<number> {
+    const now = new Date();
+    const expiredRecords = await this.struckOffModel
+      .find({ 'currentStatus.status': 'struck_off', 'currentStatus.end': { $ne: null, $lt: now } })
+      .populate({ path: 'studentId', select: '_id name lastName' })
+      .lean();
+
+    let count = 0;
+    for (const record of expiredRecords) {
+      const reinstateLog = {
+        status: 'reinstated',
+        reason: 'Auto-reinstated: strike-off period expired',
+        start: null,
+        end: null,
+        actionBy: record.currentStatus?.actionBy ?? null,
+      };
+
+      await this.struckOffModel.updateOne(
+        { studentId: record.studentId },
+        { $set: { currentStatus: null }, $push: { history: reinstateLog } },
+      );
+
+      await this.userModel.updateOne(
+        { _id: record.studentId },
+        { $set: { struckOff: false } },
+      );
+      count++;
+    }
+
+    return count;
+  }
+
 
   async removeTeacherFromClass(classId:string,teacherId:string,actionBy:string){
     const classTeachers=await this.checkTeachers(classId,teacherId);
@@ -1288,15 +1340,23 @@ async addTeacherSchedule(
       })
       .catch((err) => this.logger.error(`Teacher removed notification failed: ${err}`));
 
-    // 🔔 Notify admin/hod/principal
-    this.notifyStaff(
-      actor,
-      'Teacher Removed from Class',
-      `${teacherName} has been removed from ${className}.`,
-      { classId, className: className },
-      className,
-      teacherId,
-    );
+    // 🔔 Notify department HOD + admin only
+    const departmentId = (teacher as any)?.department?.toString?.() || (teacher as any)?.departmentId?.toString?.();
+    this.getDepartmentHodAndAdminIds(departmentId).then((hodAdminIds) => {
+      const recipients = hodAdminIds.filter((id) => id !== teacherId);
+      if (recipients.length === 0) return Promise.resolve(0);
+      return this.notificationService.createBulk({
+        userIds: recipients,
+        senderId: actor.senderId,
+        senderName: actor.senderName,
+        senderRole: actor.senderRole,
+        type: 'class',
+        title: 'Teacher Removed from Class',
+        message: `${teacherName} has been removed from ${className}.`,
+        data: { classId, className },
+        classNames: [className],
+      });
+    }).catch((err) => this.logger.error(`Teacher removed staff notification failed: ${err}`));
 
     return {
       message:"Teacher removed",
@@ -1425,6 +1485,36 @@ async addTeacherSchedule(
   private async getStaffIds(): Promise<string[]> {
     const staff = await this.userModel
       .find({ $or: [{ role: 'admin' }, { isHod: true }, { isPrincipal: true }] })
+      .select('_id')
+      .lean();
+    return staff.map((s) => s._id.toString());
+  }
+
+  // 🔔 Get department HOD + admin only (for targeted notifications)
+  private async getDepartmentHodAndAdminIds(departmentId?: string): Promise<string[]> {
+    const query: any = { $or: [{ role: 'admin' }] };
+    if (departmentId) {
+      query.$or.push({ isHod: true, department: new Types.ObjectId(departmentId) });
+    } else {
+      query.$or.push({ isHod: true });
+    }
+    const staff = await this.userModel
+      .find(query)
+      .select('_id')
+      .lean();
+    return staff.map((s) => s._id.toString());
+  }
+
+  // 🔔 Get the acting proff + HOD + admin (for struck-off notifications)
+  private async getProffHodAdminIds(actionBy: string, departmentId?: string): Promise<string[]> {
+    const query: any = { $or: [{ role: 'admin' }, { _id: new Types.ObjectId(actionBy) }] };
+    if (departmentId) {
+      query.$or.push({ isHod: true, department: new Types.ObjectId(departmentId) });
+    } else {
+      query.$or.push({ isHod: true });
+    }
+    const staff = await this.userModel
+      .find(query)
       .select('_id')
       .lean();
     return staff.map((s) => s._id.toString());

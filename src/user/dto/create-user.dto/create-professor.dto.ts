@@ -28,4 +28,12 @@ export class CreateProfessorDto extends CreateBaseUserDto {
   @IsOptional()
   @IsBoolean()
   isHod?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  is_CTI?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  is_permanent?: boolean;
 }
