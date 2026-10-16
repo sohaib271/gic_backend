@@ -387,12 +387,17 @@ export class RegistrationService {
     await student.save();
 
     // 🔔 Notify student about approval/rejection decision
-    this.notificationService
-      .create({
+    try {
+      const reviewer = await this.userModel.findById(reviewerId).select('name lastName role').lean();
+      const reviewerName = reviewer
+        ? `${reviewer.name || ''} ${reviewer.lastName || ''}`.trim() || reviewer.role
+        : 'Admin';
+
+      await this.notificationService.create({
         userId: student._id.toString(),
         senderId: reviewerId,
-        senderName: 'Admin',
-        senderRole: 'admin',
+        senderName: reviewerName,
+        senderRole: reviewer?.role || 'admin',
         type: 'general',
         title: approved ? 'Registration Approved' : 'Registration Rejected',
         message: approved
@@ -406,8 +411,14 @@ export class RegistrationService {
           reason: student.rejectionReason,
         },
         classNames: [],
-      })
-      .catch((err) => console.error('Student notification failed:', err));
+      });
+
+      this.logger.log(
+        `Student ${student._id} notified about ${approved ? 'approval' : 'rejection'}`,
+      );
+    } catch (err) {
+      this.logger.error('Student notification failed:', err);
+    }
 
     return {
       message: approved
