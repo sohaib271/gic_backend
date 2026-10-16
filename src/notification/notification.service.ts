@@ -239,7 +239,7 @@ export class NotificationService {
 
     // Find students whose className matches any of the target classes
     const students = await UserModel.find({
-      className: { $in: classNames },
+      class: { $in: classNames }, // User schema mein field ka naam "class" hai, "className" nahi
       role: 'student', // Target classes ke students
     });
 

@@ -60,8 +60,8 @@ export class AnnouncementService {
 
       const targetClasses = Array.isArray(dto.className) ? dto.className : [dto.className];
 
-      this.notificationService
-        .sendToClass(
+      try {
+        const result = await this.notificationService.sendToClass(
           targetClasses,
           {
             senderId: createdBy,
@@ -78,15 +78,16 @@ export class AnnouncementService {
             createdBy: createdBy,
             createdAt: announcement.createdAt,
           },
-        )
-        .then((result) => {
-          this.logger.log(
-            `Announcement notifications sent: ${result.notificationsCreated} created, ${result.studentsNotified} students notified`,
-          );
-        })
-        .catch((err) => {
-          this.logger.error('Failed to send notifications', err);
-        });
+        );
+
+        this.logger.log(
+          `Announcement notifications sent: ${result.notificationsCreated} created, ${result.studentsNotified} students notified`,
+        );
+      } catch (err) {
+        // Notification failure should not break announcement creation,
+        // but we log it so it's visible in server logs.
+        this.logger.error('Failed to send announcement notifications', err);
+      }
 
       return {
         message: 'Announcement created successfully',

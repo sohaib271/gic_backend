@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -25,6 +26,8 @@ import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class RegistrationService {
+  private readonly logger = new Logger(RegistrationService.name);
+
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectModel(Department.name)
@@ -269,17 +272,21 @@ export class RegistrationService {
       );
 
       // 🔔 Notify department HOD about new registration
-      const departmentId = tokenRecord.department?.toString?.();
-      if (departmentId) {
-        const hods = await this.userModel
-          .find({ isHod: true, department: new Types.ObjectId(departmentId) })
-          .select('_id')
-          .lean();
-        const hodIds = hods.map((h) => h._id.toString());
+      try {
+        const departmentId = tokenRecord.department
+          ? tokenRecord.department.toString()
+          : null;
 
-        if (hodIds.length > 0) {
-          this.notificationService
-            .createBulk({
+        if (departmentId) {
+          const hods = await this.userModel
+            .find({ isHod: true, department: new Types.ObjectId(departmentId) })
+            .select('_id')
+            .lean();
+
+          const hodIds = hods.map((h) => h._id.toString());
+
+          if (hodIds.length > 0) {
+            await this.notificationService.createBulk({
               userIds: hodIds,
               senderId: student._id.toString(),
               senderName: `${student.name} ${student.lastName}`.trim(),
@@ -294,9 +301,15 @@ export class RegistrationService {
                 department: departmentId,
               },
               classNames: [],
-            })
-            .catch((err) => console.error('HOD notification failed:', err));
+            });
+
+            this.logger.log(
+              `HOD notification sent to ${hodIds.length} HOD(s) for new student registration`,
+            );
+          }
         }
+      } catch (err) {
+        this.logger.error('HOD notification failed:', err);
       }
 
       return {
