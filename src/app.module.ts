@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { UserModule } from './user/user.module';
 import { DepartmentModule } from './department/department.module';
 import { AuthModule } from './auth/auth.module';
@@ -21,6 +22,7 @@ import { SurveyModule } from './survey/survey.module';
 import { MidtermModule } from './midterm/midterm.module';
 import { SubjectModule } from './subject/subject.module';
 import { ChatModule } from './chat/chat.module';
+import { ClassStartNotificationTask } from './class/tasks/class-start-notification.task';
 // Overriding the system resolvers is only safe when the platform DNS is
 // broken. On Render it can hang every outbound lookup (Atlas/host resolution),
 // so it stays opt-in via USE_CUSTOM_DNS=true.
@@ -81,6 +83,7 @@ if (process.env.USE_CUSTOM_DNS === 'true') {
     MidtermModule,
     SubjectModule,
     ChatModule,
+    ScheduleModule.forRoot(),
   ],
   controllers: [],
   providers: [
@@ -88,6 +91,7 @@ if (process.env.USE_CUSTOM_DNS === 'true') {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    ClassStartNotificationTask,
   ],
 })
 export class AppModule {}
