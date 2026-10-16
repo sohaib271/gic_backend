@@ -236,9 +236,35 @@ export class ChatService {
         ? msgById.get(c.lastMessage.toString()) || null
         : null;
 
+      // WhatsApp-style: never expose a deleted message as the conversation
+      // preview. If the stored last message is deleted, find the previous
+      // non-deleted one (or clear the preview entirely).
+      let previewMessage = lastMessage;
+      if (lastMessage?.deleted) {
+        const previous = await this.messageModel
+          .findOne({
+            conversationId: c._id,
+            _id: { $ne: c.lastMessage },
+            deleted: { $ne: true },
+          })
+          .sort({ createdAt: -1 })
+          .lean();
+
+        await this.conversationModel.updateOne(
+          { _id: c._id },
+          {
+            lastMessage: previous?._id || null,
+            lastMessageText: previous?.text || null,
+            lastMessageAt: previous?.createdAt || null,
+          },
+        );
+        previewMessage = previous || null;
+        c.lastMessageText = previous?.text || null;
+      }
+
       result.push({
         conversation: this.toConversationView(c, otherUser),
-        lastMessage,
+        lastMessage: previewMessage,
         unreadCount,
       });
     }
@@ -421,15 +447,29 @@ export class ChatService {
       .findById(message.conversationId)
       .lean();
 
-    // If the deleted message was the thread's preview, blank it so the
-    // conversation list does not keep showing text the user deleted.
+    // If the deleted message was the thread's preview, replace it with the
+    // previous non-deleted message so the conversation list behaves like
+    // WhatsApp (deleted message text is not shown as the last message).
     if (
       conversation &&
       conversation.lastMessage?.toString() === message._id.toString()
     ) {
+      const previousMessage = await this.messageModel
+        .findOne({
+          conversationId: message.conversationId,
+          _id: { $ne: message._id },
+          deleted: { $ne: true },
+        })
+        .sort({ createdAt: -1 })
+        .lean();
+
       await this.conversationModel.updateOne(
         { _id: conversation._id },
-        { lastMessageText: null },
+        {
+          lastMessage: previousMessage?._id || null,
+          lastMessageText: previousMessage?.text || null,
+          lastMessageAt: previousMessage?.createdAt || null,
+        },
       );
     }
 

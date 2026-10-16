@@ -71,7 +71,8 @@ export class SettingsService {
 
   /**
    * Reads multiple settings for a specific department in one query.
-   * Returns a map of key -> value, with global fallback for missing overrides.
+   * Only department-specific overrides are used — there is no global
+   * fallback. Missing keys fall back to the hardcoded default.
    */
   async getDepartmentSettings(
     keys: string[],
@@ -79,30 +80,28 @@ export class SettingsService {
   ): Promise<Record<string, any>> {
     const result: Record<string, any> = {};
 
-    // Fetch all matching docs (both global and department-specific) in one query
-    const filter: any = { key: { $in: keys }, $or: [{ departmentId: null }] };
+    // Fetch department-specific overrides only — no global (departmentId=null)
+    const filter: any = { key: { $in: keys } };
     if (departmentId) {
-      filter.$or.push({ departmentId: new Types.ObjectId(departmentId) });
+      filter.departmentId = new Types.ObjectId(departmentId);
+    } else {
+      // No department specified: no override can exist, return defaults
+      for (const key of keys) {
+        result[key] = APP_SETTING_DEFAULTS[key] ?? null;
+      }
+      return result;
     }
 
     const docs = await this.settingModel.find(filter).lean().exec();
 
-    // Build a lookup: dept-specific wins over global
-    const lookup: Record<string, { global?: any; dept?: any }> = {};
-    for (const key of keys) lookup[key] = {};
-
     for (const doc of docs) {
-      const entry = lookup[doc.key] ?? (lookup[doc.key] = {});
-      if (doc.departmentId) {
-        entry.dept = doc.value;
-      } else {
-        entry.global = doc.value;
-      }
+      result[doc.key] = doc.value;
     }
 
     for (const key of keys) {
-      const entry = lookup[key] ?? {};
-      result[key] = entry.dept ?? entry.global ?? APP_SETTING_DEFAULTS[key] ?? null;
+      if (result[key] === undefined) {
+        result[key] = APP_SETTING_DEFAULTS[key] ?? null;
+      }
     }
 
     return result;

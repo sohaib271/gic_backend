@@ -7,12 +7,16 @@ import { AppSettingController } from './app-setting.controller';
 import { SettingsService } from './settings.service';
 import { Setting, SettingSchema } from './schema/setting.schema';
 import { User, UserSchema } from '../user/schema/user.schema';
+import { Department, DepartmentSchema } from '../department/schema/department.schema';
+import { DepartmentModule } from '../department/department.module';
 
 @Module({
   imports: [
+    DepartmentModule,
     MongooseModule.forFeature([
       { name: Setting.name, schema: SettingSchema },
       { name: User.name, schema: UserSchema },
+      { name: Department.name, schema: DepartmentSchema },
     ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],

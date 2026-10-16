@@ -292,7 +292,7 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
     if(category) filter={category};
     if(department) filter={departmentId:department};
     if(category && department) filter={category,departmentId:department}
-    const classes=await this.classModel.find(filter).lean().populate({path:"classStudents",select:CLASS_STUDENT_FIELDS}).populate({
+    const classes=await this.classModel.find(filter).lean().populate({
     path: "departmentId", select:"code _id category"
   }).populate({path:"assignes.teacherId",select:"name"});
     if(classes.length===0){
@@ -303,7 +303,7 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
   }
 
   async getMyClasses(teacherId){
-       const classes=await this.classModel.find({"assignes.teacherId": teacherId}).lean().populate({path:"classStudents",select:CLASS_STUDENT_FIELDS}).populate({
+       const classes=await this.classModel.find({"assignes.teacherId": teacherId}).lean().populate({
     path: "departmentId",
   }).populate({path:"assignes.teacherId",select:"name"});
 if(classes.length==0){
@@ -378,9 +378,18 @@ private flattenLectures(
 
     const mongoFormat=new mongoose.Types.ObjectId(createdBy);
 
+    // Short numeric classId starting from 700 (700, 701, 702…)
+    const lastClass = await this.classModel
+      .findOne()
+      .sort({ classId: -1 })
+      .select('classId')
+      .lean();
+    const nextClassId = lastClass?.classId ? lastClass.classId + 1 : 700;
+
     const newClass = new this.classModel({
       ...dto,
       createdBy:mongoFormat,
+      classId: nextClassId,
     });
 
     await newClass.save();
@@ -424,8 +433,29 @@ async getClassInfo(classId:string){
   }
 }
 
+/**
+ * Resolves a class identifier to its MongoDB ObjectId. Accepts either a
+ * raw ObjectId string or the short numeric classId (700, 701, 702…).
+ * Throws NotFoundException if neither matches.
+ */
+private async resolveClassObjectId(classId: string): Promise<Types.ObjectId> {
+  if (Types.ObjectId.isValid(classId)) {
+    return new Types.ObjectId(classId);
+  }
+  const numericId = Number(classId);
+  if (Number.isFinite(numericId)) {
+    const cls = await this.classModel
+      .findOne({ classId: numericId })
+      .select('_id')
+      .lean();
+    if (cls) return cls._id as Types.ObjectId;
+  }
+  throw new NotFoundException("Class doesn't exist");
+}
+
 async getClassStudentList(classId:string){
-  const isExist=await this.classModel.findById(classId,{classStudents:1}).lean().populate({path:"classStudents",select:CLASS_STUDENT_FIELDS});
+  const classObjectId = await this.resolveClassObjectId(classId);
+  const isExist=await this.classModel.findById(classObjectId,{classStudents:1}).lean().populate({path:"classStudents",select:CLASS_STUDENT_FIELDS});
 
   if(!isExist){
     throw new NotFoundException("Class doesn't exist");

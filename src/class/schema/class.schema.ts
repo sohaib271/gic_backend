@@ -36,6 +36,12 @@ export class Class {
 
   @Prop({required:true,enum:["I","II","III","IV","V","VI","VII","VIII"]})
   class!: string;
+
+  /**
+   * Short numeric class ID displayed to the mobile app (700, 701, 702…).
+   */
+  @Prop({ type: Number, unique: true, sparse: true })
+  classId?: number;
 }
 
 export const ClassSchema = SchemaFactory.createForClass(Class);
