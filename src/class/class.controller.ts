@@ -36,7 +36,7 @@ export class ClassController {
   }
 
   @UseGuards(RolesGuard)
-  @Roles("admin","hod")
+  @Roles("admin","hod","principal")
   @Get('all')
   getClasses(@Query('category') category?: string,@Query('department') department?:string){
     return this.classservice.getClasses(category,department);

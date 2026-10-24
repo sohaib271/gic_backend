@@ -39,8 +39,8 @@ async function bootstrap() {
       crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
-  app.use(json({ limit: '1mb' }));
-  app.use(urlencoded({ extended: true, limit: '1mb' }));
+  app.use(json({ limit: '50mb' }));
+  app.use(urlencoded({ extended: true, limit: '50mb' }));
   app.use(cookieParser());
   // Enable validation
   app.useGlobalPipes(

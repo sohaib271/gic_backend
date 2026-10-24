@@ -63,6 +63,7 @@ export class Notification {
       'midterm',
       'leave',
       'general',
+      'activity',
     ],
   })
   type: string;

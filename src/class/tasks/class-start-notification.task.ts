@@ -104,6 +104,9 @@ export class ClassStartNotificationTask {
               schedule.day === currentDay &&
               schedule.startTime === currentTime
             ) {
+              this.logger.log(
+                `⏰ Class start matched: class=${className} day=${currentDay} time=${currentTime} teacherId=${teacherId} teacherName=${teacherName}`,
+              );
               const subjectName =
                 schedule.subject || assignee.subject || 'Subject';
 
@@ -126,6 +129,9 @@ export class ClassStartNotificationTask {
                   },
                   classNames: [className],
                 });
+                this.logger.log(
+                  `📢 Class start: queued student notifications students=${students.length} class=${className}`,
+                );
               }
 
               // 2. Notify the teacher
@@ -147,20 +153,40 @@ export class ClassStartNotificationTask {
                   },
                   classNames: [className],
                 });
+                this.logger.log(
+                  `📢 Class start: queued teacher notification teacherId=${teacherId} class=${className}`,
+                );
               }
 
               // 3. Notify HOD of the department
               if (departmentId) {
-                const hods = await this.userModel
-                  .find({
-                    isHod: true,
-                    department: new Types.ObjectId(departmentId),
-                    role: 'proff',
-                  })
-                  .select('_id')
-                  .lean();
+                let hods: any[] = [];
+                try {
+                  hods = await this.userModel
+                    .find({
+                      isHod: true,
+                      department: new Types.ObjectId(departmentId),
+                      role: 'proff',
+                    })
+                    .select('_id')
+                    .lean();
+                } catch (e) {
+                  // fall back to string match if ObjectId cast fails
+                  hods = await this.userModel
+                    .find({
+                      isHod: true,
+                      department: departmentId,
+                      role: 'proff',
+                    })
+                    .select('_id')
+                    .lean();
+                }
 
                 const hodIds = hods.map((h) => h._id.toString());
+
+                this.logger.log(
+                  `📢 Class start: HOD query deptId=${departmentId} hodsFound=${hods.length} hodIds=${hodIds.join(',')}`,
+                );
 
                 if (hodIds.length > 0) {
                   notifications.push({
@@ -205,6 +231,9 @@ export class ClassStartNotificationTask {
             classNames: notif.classNames,
           });
           sentCount++;
+          this.logger.log(
+            `✅ Class start notification sent: users=${notif.userIds.length} title="${notif.title}"`,
+          );
         } catch (err) {
           this.logger.error(
             `Failed to send class start notification: ${err.message}`,
@@ -213,7 +242,7 @@ export class ClassStartNotificationTask {
       }
 
       this.logger.log(
-        `✅ Class start notifications processed: ${sentCount} groups sent`,
+        `✅ Class start notifications processed: ${sentCount} groups sent, total queued: ${notifications.length}`,
       );
     } catch (error) {
       this.logger.error(

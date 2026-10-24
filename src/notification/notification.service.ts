@@ -118,10 +118,11 @@ export class NotificationService {
    * @returns Number of notifications created
    */
   async createBulk(dto: CreateBulkNotificationDto): Promise<number> {
+    this.logger.log(`createBulk called: type=${dto.type} users=${dto.userIds?.length}`);
     // 2a. Prepare bulk insert data
     const notificationsToInsert = dto.userIds.map((userId) => ({
       userId: new Types.ObjectId(userId),
-      senderId: new Types.ObjectId(dto.senderId),
+      senderId: dto.senderId ? new Types.ObjectId(dto.senderId) : new Types.ObjectId(userId),
       senderName: dto.senderName,
       senderRole: dto.senderRole,
       type: dto.type,
@@ -136,6 +137,7 @@ export class NotificationService {
     const result = await this.notificationModel.insertMany(
       notificationsToInsert,
     );
+    this.logger.log(`createBulk inserted: ${result.length}`);
 
     this.logger.log(
       `✅ Created ${result.length} bulk notifications for type: ${dto.type}`,
