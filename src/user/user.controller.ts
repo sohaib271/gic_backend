@@ -88,7 +88,7 @@ export class UserController {
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles("admin","proff")
+  @Roles("admin","proff","principal")
   getAllUsers(
     @Query('role') role?: string,
     @Query('department') department?: string,
