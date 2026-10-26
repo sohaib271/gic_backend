@@ -97,4 +97,9 @@ export class ChatController {
   async deleteMessage(@Request() req, @Param('messageId') messageId: string) {
     return this.chatService.deleteMessage(req.user.sub, messageId);
   }
+
+  @Delete('conversations/:conversationId')
+  async deleteConversation(@Request() req, @Param('conversationId') conversationId: string) {
+    return this.chatService.deleteConversation(req.user.sub, conversationId);
+  }
 }

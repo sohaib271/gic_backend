@@ -51,7 +51,8 @@ export class AuthService {
     const res=this.signToken(admin);
     response.cookie('access_token', res.access_token, this.getAccessTokenCookieOptions());
     const token=res.access_token;
-    admin.verifyToken=token;
+    const existing = Array.isArray(admin.verifyToken) ? admin.verifyToken : [];
+    admin.verifyToken = [...existing, token].slice(-2);
     await admin.save();
 
     return res;
@@ -149,7 +150,7 @@ export class AuthService {
     user.password = await bcrypt.hash(password, 10);
     user.passwordResetToken = null;
     user.passwordResetExpiry = null;
-    user.verifyToken = undefined;
+    user.verifyToken = [];
 
     await user.save();
 
@@ -175,7 +176,7 @@ export class AuthService {
     }
 
     user.password = await bcrypt.hash(newPassword, 10);
-    user.verifyToken = undefined;
+    user.verifyToken = [];
     await user.save();
 
     return { message: 'Password changed successfully' };
@@ -247,14 +248,15 @@ export class AuthService {
     }
     const res=this.signToken(user);
     response.cookie('access_token', res.access_token, this.getAccessTokenCookieOptions());
-    user.verifyToken=res.access_token;
+    const existing = Array.isArray(user.verifyToken) ? user.verifyToken : [];
+    user.verifyToken = [...existing, res.access_token].slice(-2);
     user.lastLoginAt = new Date();
     await user.save();
     return res;
   }
 
   async logout(userId:string,res:any){
-    const logoutUser=await this.userModel.findByIdAndUpdate({_id:userId},{$set:{verifyToken:null}})
+    const logoutUser=await this.userModel.findByIdAndUpdate({_id:userId},{$set:{verifyToken:[]}})
     const { maxAge, ...cookieOptions } = this.getAccessTokenCookieOptions();
     res.clearCookie('access_token', cookieOptions);
     if(!logoutUser){

@@ -115,7 +115,7 @@ export class ClassStartNotificationTask {
                 notifications.push({
                   userIds: students,
                   title: '🔔 Class Started',
-                  message: `Your class "${className}" is starting now. Professor: ${teacherName} (${subjectName})`,
+                  message: `Your class "${className}" is starting now at ${currentTime}. Professor: ${teacherName} (${subjectName})`,
                   data: {
                     notification_type: '24',
                     classId,
@@ -139,7 +139,7 @@ export class ClassStartNotificationTask {
                 notifications.push({
                   userIds: [teacherId],
                   title: '🔔 Class Started',
-                  message: `Your class "${className}" is starting now. (${subjectName})`,
+                  message: `Your class "${className}" is starting now at ${currentTime}. (${subjectName})`,
                   data: {
                     notification_type: '24',
                     classId,
@@ -192,7 +192,7 @@ export class ClassStartNotificationTask {
                   notifications.push({
                     userIds: hodIds,
                     title: '🔔 Class Started',
-                    message: `Class "${className}" has started. Professor: ${teacherName} (${subjectName})`,
+                    message: `Class "${className}" has started at ${currentTime}. Professor: ${teacherName} (${subjectName})`,
                     data: {
                       notification_type: '24',
                       classId,

@@ -159,12 +159,15 @@ bulkUploadStudents(
   }
 
   @Put(':id')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'hod', 'principal')
   updateUser(@Param('id') id: string, @Body() updateData: any) {
     return this.userService.updateUser(id, updateData);
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard) // Only admin
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'hod')
   deleteUser(@Param('id') id: string) {
     return this.userService.deleteUser(id);
   }

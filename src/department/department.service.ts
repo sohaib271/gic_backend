@@ -171,20 +171,24 @@ export class DepartmentService {
     }
 
     const isAdmin = actor.role === UserRoleEnum.ADMIN;
-    if (actor.isHod !== true && !isAdmin) {
+    const isPrincipal = actor.isPrincipal === true;
+    if (actor.isHod !== true && !isAdmin && !isPrincipal) {
       throw new ForbiddenException(
         'Only an HOD or an admin can open the department dashboard',
       );
     }
 
-    // Department always comes from the logged-in user, never from the request.
-    if (!actor.department) {
+    // Department comes from the logged-in user by default, but an admin or
+    // principal may pass an explicit departmentId to view any department.
+    let departmentId = actor.department ? actor.department.toString() : null;
+    if (query?.departmentId && (isAdmin || isPrincipal)) {
+      departmentId = query.departmentId.toString();
+    }
+    if (!departmentId) {
       throw new ForbiddenException(
         'Your profile has no department assigned. Contact the admin.',
       );
     }
-
-    const departmentId = actor.department.toString();
     if (!Types.ObjectId.isValid(departmentId)) {
       throw new BadRequestException('Invalid department on your profile');
     }

@@ -1546,7 +1546,7 @@ async addTeacherSchedule(
   // 🔔 Get all admins + HODs + principal who should see class updates
   private async getStaffIds(): Promise<string[]> {
     const staff = await this.userModel
-      .find({ $or: [{ role: 'admin' }, { isHod: true }, { isPrincipal: true }] })
+      .find({ $or: [{ role: 'admin' }, { role: 'proff' }, { isHod: true }, { isPrincipal: true }] })
       .select('_id')
       .lean();
     return staff.map((s) => s._id.toString());

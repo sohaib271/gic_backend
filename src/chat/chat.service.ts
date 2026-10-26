@@ -484,6 +484,22 @@ export class ChatService {
     };
   }
 
+  async deleteConversation(userId: string, conversationId: string) {
+    const me = new Types.ObjectId(userId);
+    const conversation = await this.conversationModel.findById(conversationId).lean();
+    if (!conversation) throw new NotFoundException('Conversation not found');
+
+    const participants = (conversation.participants || []).map((p: any) => p.toString());
+    if (!participants.includes(me.toString())) {
+      throw new ForbiddenException('You are not a participant of this conversation');
+    }
+
+    await this.messageModel.deleteMany({ conversationId: new Types.ObjectId(conversationId) });
+    await this.conversationModel.deleteOne({ _id: new Types.ObjectId(conversationId) });
+
+    return { conversationId, deletedBy: userId };
+  }
+
   // ============================================================
   // VIEW MAPPERS
   // ============================================================

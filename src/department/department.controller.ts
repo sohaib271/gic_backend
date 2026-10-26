@@ -27,7 +27,8 @@ export class DepartmentController {
   }
 
   @Get()
-  getAllDepartments() {
+  getAllDepartments(@Query('id') id?: string) {
+    if (id) return this.departmentService.getDepartmentById(id);
     return this.departmentService.getAllDepartments();
   }
 
@@ -41,6 +42,11 @@ export class DepartmentController {
   @Get('dashboard')
   getHodDashboard(@Query() query: any, @Req() req: any) {
     return this.departmentService.getHodDashboard(query, req);
+  }
+
+  @Get('department_over_all_data/:id')
+  getDepartmentOverAllData(@Param('id') id: string, @Req() req: any) {
+    return this.departmentService.getHodDashboard({ departmentId: id }, req);
   }
 
   @Get(':id')

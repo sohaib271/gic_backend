@@ -733,6 +733,7 @@ async updateUser(id: string, updateData: any) {
     'isHod',
     'doj',
     'isPrincipal',
+    'is_CTI',
     'qualification',
     'experience',
     'designation',
@@ -747,6 +748,20 @@ async updateUser(id: string, updateData: any) {
         delete userObject[key];
       }
     }
+    if (userObject.role === 'student') {
+      delete userObject.is_CTI;
+    } else {
+      delete userObject.is_apply_leave;
+      delete userObject.is_leave_approved;
+      if (userObject.isHod === true) {
+        delete userObject.struckOff;
+        delete userObject.is_CTI;
+      } else if (userObject.is_CTI === undefined) {
+        userObject.is_CTI = false;
+      }
+    }
+    // struckOff is student-only concept
+    if (userObject.role !== 'student') delete userObject.struckOff;
     return userObject;
   }
 }

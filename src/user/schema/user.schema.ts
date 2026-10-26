@@ -106,8 +106,8 @@ export class User {
   @Prop()
   password!: string;
 
-  @Prop()
-  verifyToken?: string;
+  @Prop({ type: [String], default: [] })
+  verifyToken?: string[];
 
   @Prop({ default: false })
   isQrScanned?: boolean;
@@ -163,6 +163,7 @@ export class User {
   @Prop()
   experience?: number;
 
+  @Prop({ default: false })
   @Prop({ default: false })
   is_CTI?: boolean;
 
