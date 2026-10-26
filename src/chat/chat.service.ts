@@ -158,39 +158,53 @@ export class ChatService {
   // CONVERSATIONS
   // ============================================================
 
-  async getOrCreateConversation(user: any, receiverId: string) {
-    const receiver = await this.userModel.findById(receiverId).lean();
-    if (!receiver) throw new NotFoundException('Receiver not found');
+  /**
+   * Finds the direct conversation between two users or creates it.
+   *
+   * Split out of [getOrCreateConversation] so the socket send path can reuse
+   * it without re-fetching the receiver, which that method owns.
+   */
+  private async findOrCreateConversationPair(meIdRaw: string, otherIdRaw: string) {
+    const meId = new Types.ObjectId(meIdRaw);
+    const otherId = new Types.ObjectId(otherIdRaw);
 
-    if (!this.canChat(user.role, receiver.role)) {
-      throw new ForbiddenException('Students are not allowed to chat with other students');
-    }
-
-    const meId = new Types.ObjectId(user._id.toString());
-    const otherId = new Types.ObjectId(receiverId);
-
-    let conversation = await this.conversationModel
+    const conversation = await this.conversationModel
       .findOne({
         type: 'direct',
         participants: { $size: 2, $all: [meId, otherId] },
       })
       .lean();
 
-    if (!conversation) {
-      conversation = await this.conversationModel.create({
-        type: 'direct',
-        creatorId: meId,
-        participants: [meId, otherId],
-      });
-    }
+    if (conversation) return conversation;
 
-    const other = await this.userModel
+    return this.conversationModel.create({
+      type: 'direct',
+      creatorId: meId,
+      participants: [meId, otherId],
+    });
+  }
+
+  async getOrCreateConversation(user: any, receiverId: string) {
+    // ROLE check _and_ the otherUser view both come from fields inside
+    // USER_SELECT, so a single lean fetch is enough — it used to read the
+    // receiver document twice per call.
+    const receiver = await this.userModel
       .findById(receiverId)
       .select(USER_SELECT)
       .lean();
+    if (!receiver) throw new NotFoundException('Receiver not found');
+
+    if (!this.canChat(user.role, receiver.role)) {
+      throw new ForbiddenException('Students are not allowed to chat with other students');
+    }
+
+    const conversation = await this.findOrCreateConversationPair(
+      user._id.toString(),
+      receiverId,
+    );
 
     return {
-      conversation: this.toConversationView(conversation, other),
+      conversation: this.toConversationView(conversation, receiver),
     };
   }
 
@@ -348,14 +362,25 @@ export class ChatService {
     text: string,
     replyToMessageId?: string,
   ) {
-    const receiver = await this.userModel.findById(receiverId).lean();
+    // The receiver was re-fetched four times across this method and
+    // getOrCreateConversation before delivery. Every fetch is a full DB
+    // network round trip between Render and the cluster, and they all sat on
+    // the critical path — which is exactly why listeners saw new messages
+    // seconds late. One lean fetch now serves the role check and the view.
+    const receiver = await this.userModel
+      .findById(receiverId)
+      .select(USER_SELECT)
+      .lean();
     if (!receiver) throw new NotFoundException('Receiver not found');
 
     if (!this.canChat(sender.role, receiver.role)) {
       throw new ForbiddenException('Students are not allowed to chat with other students');
     }
 
-    const { conversation } = await this.getOrCreateConversation(sender, receiverId);
+    const conversation = await this.findOrCreateConversationPair(
+      sender._id.toString(),
+      receiverId,
+    );
 
     // Reply: snapshot the quoted message at send time (WhatsApp-style), so the
     // quote survives even if the original message is later deleted. Only quotes
@@ -412,13 +437,8 @@ export class ChatService {
         this.logger.warn(`Chat push failed: ${err?.message || err}`),
       );
 
-    const otherUser = await this.userModel
-      .findById(receiverId)
-      .select(USER_SELECT)
-      .lean();
-
     return {
-      conversation: this.toConversationView(conversation, otherUser),
+      conversation: this.toConversationView(conversation, receiver),
       message: this.toMessageView(message),
     };
   }
