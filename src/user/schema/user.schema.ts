@@ -50,6 +50,13 @@ export class User {
   @Prop({ type: Types.ObjectId, ref: 'User', default: null })
   approvedBy?: Types.ObjectId | null;
 
+  // Simple boolean mirror of `approvalStatus` for clients that only need a
+  // yes/no answer. Self-registered applicants start as false and an HOD/admin
+  // approval flips it to true; accounts created directly by admin/HOD are
+  // approved from the start.
+  @Prop({ default: false })
+  is_approved?: boolean;
+
   // Why an application was turned down — shown to the student on next login.
   // `type: String` is required: a `string | null` union is ambiguous, and
   // Mongoose cannot infer the type without it.

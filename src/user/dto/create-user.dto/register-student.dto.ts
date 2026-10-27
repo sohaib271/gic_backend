@@ -64,12 +64,6 @@ export class RegisterStudentDto {
   @IsString()
   city!: string;
 
-  @IsNotEmpty({ message: 'Roll No is required' })
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1, { message: 'Roll No starts from 1' })
-  rollNo!: number;
-
   @IsNotEmpty({ message: 'Matric marks are required' })
   @Type(() => Number)
   @IsNumber()
@@ -106,9 +100,15 @@ export class RegisterStudentDto {
   @IsString()
   subjects?: string;
 
-  @IsOptional()
+  @IsNotEmpty({ message: 'Gender is required' })
   @IsIn(['M', 'F'], { message: 'Gender must be M or F' })
-  gender?: string;
+  gender!: string;
+
+  // Shift is optional; when omitted the API falls back to 'Morning', which is
+  // also the schema default.
+  @IsOptional()
+  @IsIn(['Morning', 'Evening'], { message: 'Shift must be Morning or Evening' })
+  shift?: string;
 
   // Only honoured when the registration link did not lock a class, so a
   // class-locked link can never have its class overridden from the client.

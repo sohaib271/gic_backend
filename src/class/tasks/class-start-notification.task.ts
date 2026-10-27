@@ -93,7 +93,13 @@ export class ClassStartNotificationTask {
 
         for (const assignee of (cls.assignes || [])) {
           const teacher = assignee.teacherId as any;
-          const teacherId = assignee.teacherId?.toString();
+          // `assignes.teacherId` is populated above, so it is a user object —
+          // calling toString() on it yields "[object Object]" and the
+          // notification insert then throws for an invalid ObjectId, which is
+          // why teachers never received class-start notifications. Read `_id`.
+          const teacherId = teacher
+            ? ((teacher._id ?? teacher).toString?.() ?? null)
+            : null;
           const teacherName = teacher
             ? `${teacher.name || ''} ${teacher.lastName || ''}`.trim() ||
               'Teacher'
@@ -135,7 +141,7 @@ export class ClassStartNotificationTask {
               }
 
               // 2. Notify the teacher
-              if (teacherId) {
+              if (teacherId && Types.ObjectId.isValid(teacherId)) {
                 notifications.push({
                   userIds: [teacherId],
                   title: '🔔 Class Started',
@@ -160,27 +166,30 @@ export class ClassStartNotificationTask {
 
               // 3. Notify HOD of the department
               if (departmentId) {
-                let hods: any[] = [];
-                try {
-                  hods = await this.userModel
-                    .find({
-                      isHod: true,
-                      department: new Types.ObjectId(departmentId),
-                      role: 'proff',
-                    })
-                    .select('_id')
-                    .lean();
-                } catch (e) {
-                  // fall back to string match if ObjectId cast fails
-                  hods = await this.userModel
-                    .find({
-                      isHod: true,
-                      department: departmentId,
-                      role: 'proff',
-                    })
-                    .select('_id')
-                    .lean();
-                }
+                // Same ObjectId-vs-string mismatch as the registration flow:
+                // legacy/imported HOD rows store `department` as a hex string,
+                // and find() casts the filter to ObjectId, so those rows never
+                // match. Aggregation passes values through uncast.
+                const hods =
+                  departmentId && Types.ObjectId.isValid(departmentId)
+                    ? await this.userModel
+                        .aggregate<{ _id: Types.ObjectId }>([
+                          {
+                            $match: {
+                              isHod: true,
+                              role: 'proff',
+                              department: {
+                                $in: [
+                                  new Types.ObjectId(departmentId),
+                                  departmentId,
+                                ],
+                              },
+                            },
+                          },
+                          { $project: { _id: 1 } },
+                        ])
+                        .exec()
+                    : [];
 
                 const hodIds = hods.map((h) => h._id.toString());
 

@@ -14,7 +14,8 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main.js",
     "migrate:attendance-index": "ts-node -r tsconfig-paths/register src/others-stuff/migrator/attendance-index.migrator.ts",
-    "backfill:leave-flags": "ts-node -r tsconfig-paths/register src/others-stuff/migrator/leave-flags-backfill.migrator.ts"
+    "backfill:leave-flags": "ts-node -r tsconfig-paths/register src/others-stuff/migrator/leave-flags-backfill.migrator.ts",
+    "backfill:approval-flag": "ts-node -r tsconfig-paths/register src/others-stuff/migrator/approval-flag-backfill.migrator.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

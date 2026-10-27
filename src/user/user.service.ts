@@ -158,6 +158,8 @@ const failed: {
         password: await this.hashPassword(dto.password),
         verifyToken,
         isQrScanned: false,
+        // Created directly by an admin/HOD, so it is usable immediately.
+        is_approved: true,
       });
       const department=await this.departmentModel.findById(student.department).select("code").lean();
       if(!department){
@@ -211,6 +213,7 @@ const failed: {
         password: await this.hashPassword(dto.password),
         verifyToken,
         isQrScanned: false,
+        is_approved: true,
         specialId: `PROF-${dto.cnic.slice(-4)}-${usersCount + 1}`,
       });
 
@@ -259,6 +262,7 @@ const failed: {
       password: await this.hashPassword(dto.password),
       verifyToken,
       isQrScanned: false,
+      is_approved: true,
     });
 
     await staff.save();
@@ -706,6 +710,7 @@ async updateUser(id: string, updateData: any) {
     'email',
     'city',
     'isActive',
+    'is_approved',
     'gender',
     'image',
     'name',

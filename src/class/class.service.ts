@@ -540,7 +540,7 @@ async getAssignedTeacherList(classId:string){
 
   const [cls, teacher, actor] = await Promise.all([
     this.classModel.findById(classId).select('className').lean(),
-    this.userModel.findById(dto.teacherId).select('name lastName').lean(),
+    this.userModel.findById(dto.teacherId).select('name lastName department').lean(),
     this.getSenderInfo(actionBy),
   ]);
 
@@ -583,10 +583,10 @@ async getAssignedTeacherList(classId:string){
     })
     .catch((err) => this.logger.error(`Teacher assigned notification failed: ${err}`));
 
-  // 🔔 Notify department HOD + admin only
+  // 🔔 Notify only the department HOD
   const departmentId = (teacher as any)?.department?.toString?.() || (teacher as any)?.departmentId?.toString?.();
-  this.getDepartmentHodAndAdminIds(departmentId).then((hodAdminIds) => {
-    const recipients = hodAdminIds.filter((id) => id !== dto.teacherId);
+  this.getDepartmentHodIds(departmentId).then((hodIds) => {
+    const recipients = hodIds.filter((id) => id !== dto.teacherId);
     if (recipients.length === 0) return Promise.resolve(0);
     return this.notificationService.createBulk({
       userIds: recipients,
@@ -671,10 +671,10 @@ async updateTeacherSchedule(classId: string, teacherId: string, schedule: Schedu
     })
     .catch((err) => this.logger.error(`Teacher schedule notification failed: ${err}`));
 
-  // 🔔 Notify department HOD + admin only
+  // 🔔 Notify only the department HOD
   const departmentId = (await this.userModel.findById(teacherId).select('department').lean())?.department?.toString?.();
-  this.getDepartmentHodAndAdminIds(departmentId).then((hodAdminIds) => {
-    const recipients = hodAdminIds.filter((id) => id !== teacherId);
+  this.getDepartmentHodIds(departmentId).then((hodIds) => {
+    const recipients = hodIds.filter((id) => id !== teacherId);
     if (recipients.length === 0) return Promise.resolve(0);
     return this.notificationService.createBulk({
       userIds: recipients,
@@ -839,7 +839,7 @@ async addTeacherSchedule(
 
     const [cls, student, actor] = await Promise.all([
       this.classModel.findById(classId).select('className').lean(),
-      this.userModel.findById(studentId).select('name lastName').lean(),
+      this.userModel.findById(studentId).select('name lastName department').lean(),
       this.getSenderInfo(actionBy),
     ]);
 
@@ -863,10 +863,10 @@ async addTeacherSchedule(
       })
       .catch((err) => this.logger.error(`Student removed notification failed: ${err}`));
 
-    // 🔔 Notify department HOD + admin only
+    // 🔔 Notify only the department HOD
     const departmentId = (student as any)?.department?.toString?.() || (student as any)?.departmentId?.toString?.();
-    this.getDepartmentHodAndAdminIds(departmentId).then((hodAdminIds) => {
-      const recipients = hodAdminIds.filter((id) => id !== studentId);
+    this.getDepartmentHodIds(departmentId).then((hodIds) => {
+      const recipients = hodIds.filter((id) => id !== studentId);
       if (recipients.length === 0) return Promise.resolve(0);
       return this.notificationService.createBulk({
         userIds: recipients,
@@ -1378,7 +1378,7 @@ async addTeacherSchedule(
 
     const [cls, teacher, actor] = await Promise.all([
       this.classModel.findById(classId).select('className').lean(),
-      this.userModel.findById(teacherId).select('name lastName').lean(),
+      this.userModel.findById(teacherId).select('name lastName department').lean(),
       this.getSenderInfo(actionBy),
     ]);
 
@@ -1402,10 +1402,10 @@ async addTeacherSchedule(
       })
       .catch((err) => this.logger.error(`Teacher removed notification failed: ${err}`));
 
-    // 🔔 Notify department HOD + admin only
+    // 🔔 Notify only the department HOD
     const departmentId = (teacher as any)?.department?.toString?.() || (teacher as any)?.departmentId?.toString?.();
-    this.getDepartmentHodAndAdminIds(departmentId).then((hodAdminIds) => {
-      const recipients = hodAdminIds.filter((id) => id !== teacherId);
+    this.getDepartmentHodIds(departmentId).then((hodIds) => {
+      const recipients = hodIds.filter((id) => id !== teacherId);
       if (recipients.length === 0) return Promise.resolve(0);
       return this.notificationService.createBulk({
         userIds: recipients,
@@ -1552,18 +1552,34 @@ async addTeacherSchedule(
     return staff.map((s) => s._id.toString());
   }
 
-  // 🔔 Get department HOD + admin only (for targeted notifications)
-  private async getDepartmentHodAndAdminIds(departmentId?: string): Promise<string[]> {
-    const query: any = { $or: [{ role: 'admin' }] };
-    if (departmentId) {
-      query.$or.push({ isHod: true, department: new Types.ObjectId(departmentId) });
-    } else {
-      query.$or.push({ isHod: true });
+  // 🔔 Get the HOD of one department (for targeted notifications)
+  private async getDepartmentHodIds(departmentId?: string): Promise<string[]> {
+    if (!departmentId || !Types.ObjectId.isValid(departmentId)) {
+      // Without a department we must not fall back to *every* HOD — that would
+      // broadcast one department's change to the whole college.
+      this.logger.warn(
+        'Target user has no department; class update notification skipped',
+      );
+      return [];
     }
+
+    // Aggregate instead of find(): Mongoose casts a string filter value to
+    // ObjectId, so legacy HOD rows that store `department` as a plain hex
+    // string never match. $in with both forms covers both storage styles.
     const staff = await this.userModel
-      .find(query)
-      .select('_id')
-      .lean();
+      .aggregate<{ _id: Types.ObjectId }>([
+        {
+          $match: {
+            isHod: true,
+            department: {
+              $in: [new Types.ObjectId(departmentId), departmentId],
+            },
+          },
+        },
+        { $project: { _id: 1 } },
+      ])
+      .exec();
+
     return staff.map((s) => s._id.toString());
   }
 

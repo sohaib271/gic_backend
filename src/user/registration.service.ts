@@ -157,6 +157,13 @@ export class RegistrationService {
       remainingUses: Math.max(0, record.maxUses - record.usedCount),
       // Intermediate students are not asked for inter marks.
       requiresInterMarks: resolvedCategory !== 'intermediate',
+      // Gender is required on the form; the values are exposed so the public
+      // page renders the same options the API validates against.
+      requiresGender: true,
+      genders: ['M', 'F'],
+      // Shift options for the form; the API defaults to 'Morning' if omitted.
+      shifts: ['Morning', 'Evening'],
+      defaultShift: 'Morning',
     };
   }
 
@@ -237,6 +244,7 @@ export class RegistrationService {
         password: await bcrypt.hash(dto.password, 10),
         cnic: dto.cnic,
         gender: dto.gender ?? 'M',
+        shift: dto.shift ?? 'Morning',
         address: dto.address.trim(),
         city: dto.city.trim(),
         // Everything below is taken from the token, never from the request body.
@@ -245,7 +253,6 @@ export class RegistrationService {
         // A locked link wins; otherwise the student picks from the allowed set.
         class: tokenRecord.class ?? dto.class ?? undefined,
         session: tokenRecord.session,
-        rollNo: dto.rollNo,
         matricMarks: dto.matricMarks,
         ...(category !== 'intermediate' && { interMarks: dto.interMarks }),
         doj: dto.doj,
@@ -261,6 +268,7 @@ export class RegistrationService {
         isQrScanned: false,
         // Pending approval: login is blocked until an HOD/admin approves.
         approvalStatus: 'pending',
+        is_approved: false,
         isActive: false,
       });
 
@@ -277,11 +285,26 @@ export class RegistrationService {
           ? tokenRecord.department.toString()
           : null;
 
-        if (departmentId) {
+        if (departmentId && Types.ObjectId.isValid(departmentId)) {
+          // `department` is not stored consistently: rows created through the
+          // API hold an ObjectId, while imported/legacy rows — including the
+          // existing HOD accounts — hold the plain hex string. find() lets
+          // Mongoose cast the string to an ObjectId, so a string-stored HOD
+          // silently matches nobody and the notification is never created.
+          // An aggregation passes the values through uncast, so match both.
           const hods = await this.userModel
-            .find({ isHod: true, department: new Types.ObjectId(departmentId) })
-            .select('_id')
-            .lean();
+            .aggregate<{ _id: Types.ObjectId }>([
+              {
+                $match: {
+                  isHod: true,
+                  department: {
+                    $in: [new Types.ObjectId(departmentId), departmentId],
+                  },
+                },
+              },
+              { $project: { _id: 1 } },
+            ])
+            .exec();
 
           const hodIds = hods.map((h) => h._id.toString());
 
@@ -306,6 +329,10 @@ export class RegistrationService {
             this.logger.log(
               `HOD notification sent to ${hodIds.length} HOD(s) for new student registration`,
             );
+          } else {
+            this.logger.warn(
+              `No HOD found for department ${departmentId}; new registration notification skipped`,
+            );
           }
         }
       } catch (err) {
@@ -317,6 +344,7 @@ export class RegistrationService {
           'Application submitted. You will be able to log in once it is approved by your HOD or the administration.',
         specialId: student.specialId,
         approvalStatus: student.approvalStatus,
+        is_approved: student.is_approved,
       };
     } catch (error: any) {
       // Lost the race between the check above and the insert.
@@ -378,6 +406,7 @@ export class RegistrationService {
     const approved = dto.decision === 'approved';
 
     student.approvalStatus = approved ? 'approved' : 'rejected';
+    student.is_approved = approved;
     student.approvedAt = new Date();
     student.approvedBy = new Types.ObjectId(reviewerId);
     student.rejectionReason = approved ? null : (dto.reason ?? null);
@@ -430,6 +459,7 @@ export class RegistrationService {
         name: student.name,
         lastName: student.lastName,
         approvalStatus: student.approvalStatus,
+        is_approved: student.is_approved,
         rejectionReason: student.rejectionReason,
       },
     };
