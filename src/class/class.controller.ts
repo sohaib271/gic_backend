@@ -60,6 +60,17 @@ getMyClasses(@Req() req:any){
   return this.classservice.getMyClasses(req?.user.sub);
 }
 
+/**
+ * GET /class/my-subjects
+ * Subjects assigned to the signed-in teacher (or HOD) — taken from the token.
+ */
+@Get("my-subjects")
+@UseGuards(RolesGuard)
+@Roles("proff","hod")
+getMySubjects(@Req() req:any){
+  return this.classservice.getMySubjects(req.user.sub);
+}
+
 // POST /classes/:id/assignes/:teacherId/schedule
 @Post(':id/assignes/:teacherId/schedule')
 @UseGuards(RolesGuard)

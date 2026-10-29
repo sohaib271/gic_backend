@@ -316,6 +316,83 @@ if(classes.length==0){
  }
 
  /**
+  * Subjects the signed-in teacher is assigned to teach, read from the
+  * `assignes.teacherId` rows of every class. The id always comes from the
+  * JWT, so a caller can only ever see their own subjects.
+  *
+  * Each row lists the classes the subject is taught in, so the app can narrow
+  * a subject back to a class without another request.
+  */
+ async getMySubjects(teacherId: string) {
+   if (!teacherId || !Types.ObjectId.isValid(teacherId)) {
+     throw new BadRequestException('Invalid teacher id');
+   }
+
+   const owner = new Types.ObjectId(teacherId);
+   const classes = await this.classModel
+     .find({ 'assignes.teacherId': owner })
+     .select('className classId assignes')
+     .lean();
+
+   type SubjectRow = {
+     subjectId: number | null;
+     subject: string;
+     classes: {
+       classId: string;
+       className: string;
+       classIdNumber: number | null;
+     }[];
+   };
+
+   const rows = new Map<string, SubjectRow>();
+
+   for (const cls of classes) {
+     for (const assignee of cls.assignes ?? []) {
+       if (assignee.teacherId?.toString() !== teacherId) continue;
+
+       const name = (assignee.subject ?? '').trim();
+       const subjectId =
+         typeof assignee.subjectId === 'number' ? assignee.subjectId : null;
+       if (!name && subjectId === null) continue;
+
+       const key =
+         subjectId !== null ? `id:${subjectId}` : `name:${name.toLowerCase()}`;
+       const row = rows.get(key) ?? { subjectId, subject: name, classes: [] };
+
+       if (!row.subject && name) row.subject = name;
+       if (!row.classes.some((entry) => entry.classId === cls._id.toString())) {
+         row.classes.push({
+           classId: cls._id.toString(),
+           className: cls.className,
+           classIdNumber: cls.classId ?? null,
+         });
+       }
+
+       rows.set(key, row);
+     }
+   }
+
+   // Older rows stored only the numeric id, so resolve the missing names once
+   // for the whole result instead of per class.
+   const missingIds = [...rows.values()]
+     .filter((row) => !row.subject && row.subjectId !== null)
+     .map((row) => row.subjectId as number);
+
+   if (missingIds.length > 0) {
+     const subjectMap = await this.subjectService.getMapBySubjectIds(missingIds);
+     for (const row of rows.values()) {
+       if (row.subject || row.subjectId === null) continue;
+       row.subject =
+         subjectMap.get(row.subjectId)?.name ?? `Subject ${row.subjectId}`;
+     }
+   }
+
+   return [...rows.values()].sort((a, b) =>
+     a.subject.localeCompare(b.subject),
+   );
+ }
+
+ /**
   * Attaches a flat per-lecture list (subjectId + resolved subject name) to each
   * class so the app does not have to walk the nested assignes array itself.
   */
