@@ -23,6 +23,7 @@ import { MidtermModule } from './midterm/midterm.module';
 import { SubjectModule } from './subject/subject.module';
 import { ChatModule } from './chat/chat.module';
 import { ActivityModule } from './activity/activity.module';
+import { AssignmentModule } from './assignment/assignment.module';
 import { ClassStartNotificationTask } from './class/tasks/class-start-notification.task';
 // Overriding the system resolvers is only safe when the platform DNS is
 // broken. On Render it can hang every outbound lookup (Atlas/host resolution),
@@ -85,6 +86,7 @@ if (process.env.USE_CUSTOM_DNS === 'true') {
     SubjectModule,
     ChatModule,
     ActivityModule,
+    AssignmentModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [],
