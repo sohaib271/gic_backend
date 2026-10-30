@@ -362,11 +362,7 @@ export class ChatService {
     text: string,
     replyToMessageId?: string,
   ) {
-    // The receiver was re-fetched four times across this method and
-    // getOrCreateConversation before delivery. Every fetch is a full DB
-    // network round trip between Render and the cluster, and they all sat on
-    // the critical path — which is exactly why listeners saw new messages
-    // seconds late. One lean fetch now serves the role check and the view.
+    // 1️⃣ Fetch receiver once — serves both role check and final view
     const receiver = await this.userModel
       .findById(receiverId)
       .select(USER_SELECT)
@@ -377,14 +373,13 @@ export class ChatService {
       throw new ForbiddenException('Students are not allowed to chat with other students');
     }
 
+    // 2️⃣ Find or create conversation (single DB round-trip)
     const conversation = await this.findOrCreateConversationPair(
       sender._id.toString(),
       receiverId,
     );
 
-    // Reply: snapshot the quoted message at send time (WhatsApp-style), so the
-    // quote survives even if the original message is later deleted. Only quotes
-    // from the same conversation are accepted; anything else is ignored.
+    // 3️⃣ Resolve reply quote (only from same conversation)
     let replyTo: MessageReplyTo | null = null;
     if (replyToMessageId) {
       const quoted = await this.messageModel.findById(replyToMessageId).lean();
@@ -406,6 +401,7 @@ export class ChatService {
       }
     }
 
+    // 4️⃣ Create message document
     const message = await this.messageModel.create({
       conversationId: conversation._id,
       senderId: new Types.ObjectId(sender._id.toString()),
@@ -414,16 +410,18 @@ export class ChatService {
       readBy: [new Types.ObjectId(sender._id.toString())],
     });
 
-    await this.conversationModel.updateOne(
-      { _id: conversation._id },
-      {
-        lastMessage: message._id,
-        lastMessageText: message.text,
-        lastMessageAt: message.createdAt,
-      },
+    // 5️⃣ Update conversation (lastMessage, lastMessageText, lastMessageAt) —
+    //    fire-and-forget; not on the critical path for UI latency
+    this.updateConversationAfterMessage(
+      conversation._id,
+      message._id,
+      message.text,
+      message.createdAt,
+    ).catch((err) =>
+      this.logger.warn(`Conversation update failed: ${err?.message || err}`),
     );
 
-    // FCM push to the receiver — push only, no in-app notification record
+    // 7️⃣ FCM push to the receiver — fire-and-forget, does not block UI
     this.notificationService
       .sendChatPush({
         receiverId,
@@ -437,6 +435,9 @@ export class ChatService {
         this.logger.warn(`Chat push failed: ${err?.message || err}`),
       );
 
+    // Return view data (conversation view uses the updated conversation,
+    // but since we emitted the socket event immediately, the client will
+    // also receive the full message via the socket event)
     return {
       conversation: this.toConversationView(conversation, receiver),
       message: this.toMessageView(message),
@@ -523,6 +524,22 @@ export class ChatService {
   // ============================================================
   // VIEW MAPPERS
   // ============================================================
+
+  async updateConversationAfterMessage(
+    conversationId: Types.ObjectId,
+    messageId: Types.ObjectId,
+    text: string,
+    createdAt: Date,
+  ): Promise<void> {
+    await this.conversationModel.updateOne(
+      { _id: conversationId },
+      {
+        lastMessage: messageId,
+        lastMessageText: text,
+        lastMessageAt: createdAt,
+      },
+    );
+  }
 
   private toConversationView(conversation: any, otherUser?: any) {
     return {
