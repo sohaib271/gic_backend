@@ -64,10 +64,10 @@ export class Message {
   }[];
 
   @Prop({ type: Date, default: Date.now })
-  createdAt?: Date;
+  createdAt!: Date;
 
   @Prop({ type: Date, default: Date.now })
-  updatedAt?: Date;
+  updatedAt!: Date;
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
