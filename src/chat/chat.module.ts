@@ -9,6 +9,7 @@ import { Class, ClassSchema } from 'src/class/schema/class.schema';
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
 import { ChatController } from './chat.controller';
+import { ChatFileService } from './chat-file.service';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { ChatController } from './chat.controller';
     ]),
   ],
   controllers: [ChatController],
-  providers: [ChatService, ChatGateway],
-  exports: [ChatService, ChatGateway],
+  providers: [ChatService, ChatGateway, ChatFileService],
+  exports: [ChatService, ChatGateway, ChatFileService],
 })
 export class ChatModule {}

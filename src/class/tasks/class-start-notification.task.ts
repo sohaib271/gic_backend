@@ -87,8 +87,9 @@ export class ClassStartNotificationTask {
         );
 
         // Find department for HOD notification
-        const departmentId = (cls as any)?.departmentId
-          ? (cls as any).departmentId.toString()
+        const rawDept = (cls as any)?.departmentId;
+        const departmentId = rawDept
+          ? (typeof rawDept === 'string' ? rawDept : rawDept.toString())
           : null;
 
         for (const assignee of (cls.assignes || [])) {
@@ -120,7 +121,7 @@ export class ClassStartNotificationTask {
               if (students.length > 0) {
                 notifications.push({
                   userIds: students,
-                  title: '🔔 Class Started',
+                  title: 'Class Started',
                   message: `Your class "${className}" is starting now at ${currentTime}. Professor: ${teacherName} (${subjectName})`,
                   data: {
                     notification_type: '24',
@@ -144,7 +145,7 @@ export class ClassStartNotificationTask {
               if (teacherId && Types.ObjectId.isValid(teacherId)) {
                 notifications.push({
                   userIds: [teacherId],
-                  title: '🔔 Class Started',
+                  title: 'Class Started',
                   message: `Your class "${className}" is starting now at ${currentTime}. (${subjectName})`,
                   data: {
                     notification_type: '24',
@@ -170,6 +171,9 @@ export class ClassStartNotificationTask {
                 // legacy/imported HOD rows store `department` as a hex string,
                 // and find() casts the filter to ObjectId, so those rows never
                 // match. Aggregation passes values through uncast.
+                // NOTE: Do NOT filter by role: 'proff' here — HODs may have
+                // role 'admin' or 'principal' in some setups, and filtering
+                // by role would silently skip them.
                 const hods =
                   departmentId && Types.ObjectId.isValid(departmentId)
                     ? await this.userModel
@@ -177,7 +181,6 @@ export class ClassStartNotificationTask {
                           {
                             $match: {
                               isHod: true,
-                              role: 'proff',
                               department: {
                                 $in: [
                                   new Types.ObjectId(departmentId),
@@ -200,7 +203,7 @@ export class ClassStartNotificationTask {
                 if (hodIds.length > 0) {
                   notifications.push({
                     userIds: hodIds,
-                    title: '🔔 Class Started',
+                    title: 'Class Started',
                     message: `Class "${className}" has started at ${currentTime}. Professor: ${teacherName} (${subjectName})`,
                     data: {
                       notification_type: '24',

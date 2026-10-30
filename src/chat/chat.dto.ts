@@ -1,4 +1,4 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class SocketSendMessageDto {
   @IsString()
@@ -10,12 +10,17 @@ export class SocketSendMessageDto {
   receiverId: string;
 
   @IsString()
-  @IsNotEmpty()
-  text: string;
+  @IsOptional()
+  text: string = '';
 
   @IsOptional()
   @IsString()
   replyToMessageId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  attachments?: string[];
 }
 
 export class SocketTypingDto {
@@ -54,12 +59,17 @@ export class SendMessageDto {
   receiverId: string;
 
   @IsString()
-  @IsNotEmpty()
-  text: string;
+  @IsOptional()
+  text: string = '';
 
   @IsOptional()
   @IsString()
   replyToMessageId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  attachments?: string[];
 }
 
 export class SocketDeleteMessageDto {

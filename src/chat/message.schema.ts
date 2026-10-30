@@ -44,6 +44,25 @@ export class Message {
   @Prop({ type: [{ type: SchemaTypes.ObjectId, ref: User.name }], default: [] })
   readBy!: Types.ObjectId[];
 
+  @Prop({
+    type: [
+      {
+        fileId: { type: SchemaTypes.ObjectId, required: true },
+        name: { type: String, default: 'attachment' },
+        mime: { type: String, default: 'application/octet-stream' },
+        size: { type: Number, default: 0 },
+      },
+    ],
+    default: [],
+    _id: false,
+  })
+  attachments?: {
+    fileId: Types.ObjectId;
+    name: string;
+    mime: string;
+    size: number;
+  }[];
+
   @Prop({ type: Date, default: Date.now })
   createdAt?: Date;
 

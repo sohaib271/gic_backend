@@ -7,12 +7,21 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Request,
+  Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
+import multer from 'multer';
+import { Logger, NotFoundException } from '@nestjs/common';
 import { AuthGuard } from 'src/others-stuff/guards/jwt-auth.guard';
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
+import { ChatFileService } from './chat-file.service';
 import {
   CreateConversationDto,
   GetMessagesQueryDto,
@@ -22,9 +31,12 @@ import {
 @Controller('chat')
 @UseGuards(AuthGuard)
 export class ChatController {
+  private readonly logger = new Logger(ChatController.name);
+
   constructor(
     private chatService: ChatService,
     private chatGateway: ChatGateway,
+    private chatFileService: ChatFileService,
   ) {}
 
   @Get('contacts')
@@ -90,7 +102,58 @@ export class ChatController {
       dto.receiverId,
       dto.text,
       dto.replyToMessageId,
+      dto.attachments,
     );
+  }
+
+  // ============================================================
+  // FILES
+  // ============================================================
+
+  @Post('upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: multer.memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+    }),
+  )
+  uploadFile(@Request() req, @UploadedFile() file: Express.Multer.File) {
+    return this.chatFileService.save(req.user.sub, file).then((stored) => ({
+      fileId: stored.fileId.toString(),
+      name: stored.name,
+      mime: stored.mime,
+      size: stored.size,
+    }));
+  }
+
+  @Get('files/:fileId')
+  async downloadFile(
+    @Param('fileId') fileId: string,
+    @Res() res: Response,
+  ) {
+    const file = await this.chatFileService.find(fileId);
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+
+    const stream = await this.chatFileService.stream(fileId);
+    res.setHeader('Content-Type', file.mime || 'application/octet-stream');
+    res.setHeader('Content-Length', String(file.size));
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    );
+
+    stream.on('error', (error) => {
+      this.logger.error(`Chat file stream failed: ${error}`);
+      if (!res.headersSent) {
+        res.status(404).json({ message: 'File not found' });
+      } else {
+        res.end();
+      }
+    });
+
+    stream.pipe(res);
   }
 
   @Delete('messages/:messageId')

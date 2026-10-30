@@ -120,6 +120,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data.receiverId,
         data.text,
         data.replyToMessageId,
+        data.attachments,
       );
 
       const payload = {

@@ -12,6 +12,7 @@ import { User, UserDocument } from 'src/user/schema/user.schema';
 import { Class, ClassDocument } from 'src/class/schema/class.schema';
 import { UserRoleEnum } from 'src/user/enum/UserRole.enum';
 import { NotificationService } from 'src/notification/notification.service';
+import { ChatFileService } from './chat-file.service';
 
 const USER_SELECT =
   'name lastName specialId role image department isHod isPrincipal designation';
@@ -30,6 +31,7 @@ export class ChatService {
     @InjectModel(Class.name)
     private classModel: Model<ClassDocument>,
     private notificationService: NotificationService,
+    private chatFileService: ChatFileService,
   ) {}
 
   async getRawUser(userId: string) {
@@ -361,6 +363,7 @@ export class ChatService {
     receiverId: string,
     text: string,
     replyToMessageId?: string,
+    attachmentIds?: string[],
   ) {
     // 1️⃣ Fetch receiver once — serves both role check and final view
     const receiver = await this.userModel
@@ -401,12 +404,26 @@ export class ChatService {
       }
     }
 
-    // 4️⃣ Create message document
+    // 4️⃣ Resolve attachments (if any)
+    const attachments = attachmentIds?.length
+      ? await this.chatFileService.resolveOwned(
+          sender._id.toString(),
+          attachmentIds,
+        )
+      : [];
+
+    // 5️⃣ Create message document
     const message = await this.messageModel.create({
       conversationId: conversation._id,
       senderId: new Types.ObjectId(sender._id.toString()),
-      text: text.trim(),
+      text: (text || '').trim(),
       replyTo,
+      attachments: attachments.map((a) => ({
+        fileId: a.fileId,
+        name: a.name,
+        mime: a.mime,
+        size: a.size,
+      })),
       readBy: [new Types.ObjectId(sender._id.toString())],
     });
 
@@ -577,6 +594,12 @@ export class ChatService {
       deleted: isDeleted,
       deletedAt: message.deletedAt || null,
       readBy: message.readBy,
+      attachments: isDeleted ? [] : (message.attachments || []).map((a) => ({
+        fileId: a.fileId,
+        name: a.name,
+        mime: a.mime,
+        size: a.size,
+      })),
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
     };
