@@ -20,7 +20,10 @@ export class Message {
   @Prop({ type: SchemaTypes.ObjectId, ref: User.name, required: true })
   senderId!: Types.ObjectId;
 
-  @Prop({ required: true })
+  // A caption is optional: image/file-only messages store an empty string.
+  // `required: true` on a String also rejects '' in Mongoose, which made
+  // attachment-only sends fail with "Path `text` is required".
+  @Prop({ default: '' })
   text!: string;
 
   @Prop({
