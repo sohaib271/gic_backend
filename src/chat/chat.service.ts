@@ -446,7 +446,14 @@ export class ChatService {
         senderName: `${sender.name || ''} ${sender.lastName || ''}`.trim(),
         senderRole: sender.role,
         conversationId: conversation._id.toString(),
-        messageText: message.text,
+        // Attachment-only messages would otherwise push an empty body.
+        messageText:
+          message.text ||
+          (attachments.length
+            ? attachments.some((a) => a.mime?.startsWith('image/'))
+              ? 'Photo'
+              : 'Document'
+            : ''),
       })
       .catch((err) =>
         this.logger.warn(`Chat push failed: ${err?.message || err}`),

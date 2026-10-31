@@ -32,11 +32,9 @@ lerna-debug.log*
 # IDE - VSCode
 
 # dotenv environment variable files
-.env
 .env.development.local
 .env.test.local
 .env.production.local
-.env.local
 
 # temp directory
 .temp
@@ -53,3 +51,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
+config.bat
