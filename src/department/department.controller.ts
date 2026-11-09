@@ -6,6 +6,8 @@ import {
   Delete,
   Body,
   Param,
+  Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { DepartmentService } from './department.service';
@@ -25,8 +27,26 @@ export class DepartmentController {
   }
 
   @Get()
-  getAllDepartments() {
+  getAllDepartments(@Query('id') id?: string) {
+    if (id) return this.departmentService.getDepartmentById(id);
     return this.departmentService.getAllDepartments();
+  }
+
+  /**
+   * HOD department dashboard.
+   * GET /departments/dashboard?from=&to=&year=
+   * Department is resolved from the logged-in HOD/admin token — the client
+   * never sends a department id.
+   * NOTE: must be declared before @Get(':id') so it is not swallowed by it.
+   */
+  @Get('dashboard')
+  getHodDashboard(@Query() query: any, @Req() req: any) {
+    return this.departmentService.getHodDashboard(query, req);
+  }
+
+  @Get('department_over_all_data/:id')
+  getDepartmentOverAllData(@Param('id') id: string, @Req() req: any) {
+    return this.departmentService.getHodDashboard({ departmentId: id }, req);
   }
 
   @Get(':id')

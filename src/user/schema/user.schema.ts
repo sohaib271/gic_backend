@@ -34,6 +34,35 @@ export class User {
   @Prop({default:true})
   isActive?:boolean;
 
+  /* =======================
+     SELF-REGISTRATION APPROVAL
+   ======================== */
+
+  // Students who apply through a public registration link land here first and
+  // cannot log in until an HOD/admin approves them. Admin/HOD-created students
+  // never set this, so they stay 'approved' by default and keep logging in.
+  @Prop({ enum: ['pending', 'approved', 'rejected'], default: 'approved' })
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+
+  @Prop({ type: Date, default: null })
+  approvedAt?: Date | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  approvedBy?: Types.ObjectId | null;
+
+  // Simple boolean mirror of `approvalStatus` for clients that only need a
+  // yes/no answer. Self-registered applicants start as false and an HOD/admin
+  // approval flips it to true; accounts created directly by admin/HOD are
+  // approved from the start.
+  @Prop({ default: false })
+  is_approved?: boolean;
+
+  // Why an application was turned down — shown to the student on next login.
+  // `type: String` is required: a `string | null` union is ambiguous, and
+  // Mongoose cannot infer the type without it.
+  @Prop({ type: String, default: null })
+  rejectionReason?: string | null;
+
   @Prop({default:'M',enum:['M','F']})
   gender?:string
 
@@ -48,6 +77,20 @@ export class User {
 
   @Prop({default:false})
   struckOff?:boolean;
+
+  // Leave state mirrored onto the student record so a teacher marking a class
+  // can see at a glance who is on approved leave without opening each request.
+  // Kept as two independent flags: a student may have applied (is_apply_leave)
+  // while the request is still pending, in which case is_leave_approved is
+  // false and neither means "absent".
+  @Prop({ default: false })
+  is_apply_leave?: boolean;
+
+  @Prop({ default: false })
+  is_leave_approved?: boolean;
+
+  @Prop({ default: false })
+  is_leave_expired?: boolean;
 
   @Prop({ required: true })
   lastName!: string;
@@ -70,15 +113,18 @@ export class User {
   @Prop()
   password!: string;
 
-  @Prop()
-  verifyToken?: string;
+  @Prop({ type: [String], default: [] })
+  verifyToken?: string[];
 
   @Prop({ default: false })
   isQrScanned?: boolean;
 
+  @Prop({ type: Date, default: null })
+  lastLoginAt?: Date | null;
+
   /* =======================
      STUDENT FIELDS
-  ======================== */
+   ======================== */
 
   @Prop({ type: Types.ObjectId, ref: 'Department' })
   department?: Types.ObjectId;
@@ -106,8 +152,8 @@ export class User {
 
   /* =======================
      PROFESSOR FIELDS
-     (ONLY FOR PROFESSOR)
-  ======================== */
+      (ONLY FOR PROFESSOR)
+   ======================== */
 
   @Prop({ default: false })
   isHod?: boolean;
@@ -124,9 +170,16 @@ export class User {
   @Prop()
   experience?: number;
 
+  @Prop({ default: false })
+  @Prop({ default: false })
+  is_CTI?: boolean;
+
+  @Prop({ default: false })
+  is_permanent?: boolean;
+
   /* =======================
      STAFF FIELDS
-  ======================== */
+   ======================== */
 
   @Prop()
   designation?: string;

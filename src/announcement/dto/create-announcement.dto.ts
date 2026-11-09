@@ -1,9 +1,9 @@
-import { IsString, IsNotEmpty, IsMongoId, IsArray } from 'class-validator';
+import { IsOptional, IsMongoId, IsNotEmpty, IsString, IsArray } from 'class-validator';
 
 export class CreateAnnouncementDto {
+  @IsOptional()
   @IsMongoId({ message: 'Invalid teacher ID' })
-  @IsNotEmpty({ message: 'Teacher ID is required' })
-  teacherId!: string;
+  teacherId?: string;
 
   @IsNotEmpty({ message: 'Class name is required' })
   className!: string | string[];

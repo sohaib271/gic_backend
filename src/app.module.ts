@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { UserModule } from './user/user.module';
 import { DepartmentModule } from './department/department.module';
 import { AuthModule } from './auth/auth.module';
@@ -13,7 +14,23 @@ import { TeacherModule } from './teacher/teacher.module';
 import { AnnouncementModule } from './announcement/announcement.module';
 import { NotificationModule } from './notification/notification.module';
 import { RemarksModule } from './remarks/remarks.module';
-dns.setServers(["1.1.1.1","8.8.8.8"]);
+import { FeeModule } from './fee/fee.module';
+import { LeaveTypesModule } from './leave-types/leave-types.module';
+import { LeaveModule } from './leave/leave.module';
+import { SettingsModule } from './settings/settings.module';
+import { SurveyModule } from './survey/survey.module';
+import { MidtermModule } from './midterm/midterm.module';
+import { SubjectModule } from './subject/subject.module';
+import { ChatModule } from './chat/chat.module';
+import { ActivityModule } from './activity/activity.module';
+import { AssignmentModule } from './assignment/assignment.module';
+import { ClassStartNotificationTask } from './class/tasks/class-start-notification.task';
+// Overriding the system resolvers is only safe when the platform DNS is
+// broken. On Render it can hang every outbound lookup (Atlas/host resolution),
+// so it stays opt-in via USE_CUSTOM_DNS=true.
+if (process.env.USE_CUSTOM_DNS === 'true') {
+  dns.setServers(['1.1.1.1', '8.8.8.8']);
+}
 
 @Module({
   imports: [
@@ -27,9 +44,29 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
    MongooseModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URL') || 'mongodb://localhost:27017/college-db',
-      }),
+      useFactory: (configService: ConfigService) => {
+        const uri = configService.get<string>('MONGODB_URL');
+
+        if (!uri) {
+          throw new Error(
+            'MONGODB_URL is not set. Add it to your environment (on Render: Environment tab). ' +
+              'Without it the app cannot bind a port and Render fails with "Port scan timeout reached".',
+          );
+        }
+
+        return {
+          uri,
+          // Fail fast instead of hanging: Nest's mongoose retry defaults
+          // (9 attempts x 30s server selection) kept the process alive for
+          // minutes with no port bound, which Render reports as a timeout.
+          serverSelectionTimeoutMS: 10_000,
+          connectTimeoutMS: 10_000,
+          maxPoolSize: 10,
+          retryAttempts: 2,
+          retryDelay: 2000,
+          verboseRetryLog: true,
+        };
+      },
     }),
     UserModule,
     DepartmentModule,
@@ -40,6 +77,17 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
     AnnouncementModule,
     NotificationModule,
     RemarksModule,
+    FeeModule,
+    LeaveTypesModule,
+    LeaveModule,
+    SettingsModule,
+    SurveyModule,
+    MidtermModule,
+    SubjectModule,
+    ChatModule,
+    ActivityModule,
+    AssignmentModule,
+    ScheduleModule.forRoot(),
   ],
   controllers: [],
   providers: [
@@ -47,6 +95,7 @@ dns.setServers(["1.1.1.1","8.8.8.8"]);
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    ClassStartNotificationTask,
   ],
 })
 export class AppModule {}
