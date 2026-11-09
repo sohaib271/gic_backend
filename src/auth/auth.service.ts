@@ -1,6 +1,7 @@
 import {
   Injectable,
   UnauthorizedException,
+  ForbiddenException,
   BadRequestException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -50,7 +51,8 @@ export class AuthService {
     const res=this.signToken(admin);
     response.cookie('access_token', res.access_token, this.getAccessTokenCookieOptions());
     const token=res.access_token;
-    admin.verifyToken=token;
+    const existing = Array.isArray(admin.verifyToken) ? admin.verifyToken : [];
+    admin.verifyToken = [...existing, token].slice(-2);
     await admin.save();
 
     return res;
@@ -148,11 +150,36 @@ export class AuthService {
     user.password = await bcrypt.hash(password, 10);
     user.passwordResetToken = null;
     user.passwordResetExpiry = null;
-    user.verifyToken = undefined;
+    user.verifyToken = [];
 
     await user.save();
 
     return { message: 'Password reset successful' };
+  }
+
+  /* ======================
+     CHANGE PASSWORD (LOGGED IN)
+  ======================= */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.userModel.findById(userId).select('password');
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const match = await bcrypt.compare(currentPassword, user.password);
+    if (!match) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('New password must be different from current password');
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.verifyToken = [];
+    await user.save();
+
+    return { message: 'Password changed successfully' };
   }
 
   /* ======================
@@ -196,15 +223,40 @@ export class AuthService {
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) throw new UnauthorizedException('Invalid credentials');
+
+    // Self-registered students wait for HOD/admin approval. Checked before
+    // isActive so the student sees the real reason rather than a generic
+    // "account disabled" message.
+    if (user.approvalStatus === 'pending') {
+      throw new ForbiddenException(
+        'Your application is still pending approval. Please wait for your HOD or the administration to approve it.',
+      );
+    }
+    if (user.approvalStatus === 'rejected') {
+      throw new ForbiddenException(
+        user.rejectionReason
+          ? `Your application was rejected: ${user.rejectionReason}`
+          : 'Your application was rejected. Please contact the administration.',
+      );
+    }
+
+    // Block disabled (deactivated) accounts
+    if (user.isActive === false) {
+      throw new ForbiddenException(
+        'Your account is disabled. Please contact the administration.',
+      );
+    }
     const res=this.signToken(user);
     response.cookie('access_token', res.access_token, this.getAccessTokenCookieOptions());
-    user.verifyToken=res.access_token;
+    const existing = Array.isArray(user.verifyToken) ? user.verifyToken : [];
+    user.verifyToken = [...existing, res.access_token].slice(-2);
+    user.lastLoginAt = new Date();
     await user.save();
     return res;
   }
 
   async logout(userId:string,res:any){
-    const logoutUser=await this.userModel.findByIdAndUpdate({_id:userId},{$set:{verifyToken:null}})
+    const logoutUser=await this.userModel.findByIdAndUpdate({_id:userId},{$set:{verifyToken:[]}})
     const { maxAge, ...cookieOptions } = this.getAccessTokenCookieOptions();
     res.clearCookie('access_token', cookieOptions);
     if(!logoutUser){
@@ -223,12 +275,21 @@ export class AuthService {
     const payload = {
       sub: user._id,
       role: user.role,
+      department: user.department,
+      isHod: user.isHod === true,
     };
 
-    // Convert to plain object and remove sensitive fields
+    // Convert to plain object and drop sensitive fields. `verifyToken` is the
+    // active session, and `otp`/`otpExpiry`/`passwordResetToken` would let a
+    // caller finish someone else's login — the login response must not carry
+    // them, same as the general user sanitizer.
     const userObject = user.toObject();
     delete userObject.password;
     delete userObject.verifyToken;
+    delete userObject.otp;
+    delete userObject.otpExpiry;
+    delete userObject.passwordResetToken;
+    delete userObject.passwordResetTokenExpiry;
     delete userObject.__v;
 
     return {

@@ -22,11 +22,35 @@ A NestJS REST API for managing school data including students, faculty, classes,
 Create a `.env` file in the root:
 
 ```env
-MONGODB_URI=mongodb://localhost:27017/gic_school
+MONGODB_URL=mongodb://localhost:27017/gic_school
 JWT_SECRET=your-jwt-secret
 QR_SECRET=your-qr-hmac-secret
 PORT=3000
 ```
+
+`MONGODB_URL` (not `MONGODB_URI`) is required — the app refuses to start without it.
+`PORT` is optional locally; on Render it is injected automatically and must not be set manually.
+
+---
+
+## Deploying to Render
+
+`render.yaml` in the repo root holds the service config (build `npm ci && npm run build`,
+start `npm run start:prod`, health check `/health`).
+
+Set these in the Render dashboard under **Environment**, otherwise the deploy fails:
+
+| Variable | Notes |
+| --- | --- |
+| `MONGODB_URL` | Required. For MongoDB Atlas, add Render's outbound IPs to the Atlas IP access list, otherwise the DB is unreachable. |
+| `JWT_SECRET`, `QR_SECRET` | Required. |
+| `PRODUCTION_URL` | Allowed CORS origin (your deployed frontend). |
+| `FIREBASE_SERVICE_ACCOUNT` | Optional — push notifications are skipped if unset. |
+| `EMAIL_USER`, `EMAIL_PASS` | Optional — emails are skipped if unset. |
+
+The server must bind `0.0.0.0:$PORT`; it does this in `src/main.ts`. If you ever see
+`Port scan timeout reached, no open ports detected`, the app never reached `app.listen()` —
+check the deploy log above it for a database connection error.
 
 ---
 

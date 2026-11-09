@@ -24,7 +24,7 @@ export class AuthGuard implements CanActivate {
       }
       const dbToken=await this.userModel.findById(user.sub,{verifyToken:1,_id:0});
 
-      if(!dbToken?.verifyToken || (token!==dbToken?.verifyToken)){
+      if(!Array.isArray(dbToken?.verifyToken) || !dbToken.verifyToken.includes(token)){
           throw new UnauthorizedException("Couldn't verify user. Login again")
       }
       request['user']=user
@@ -47,8 +47,7 @@ export class AuthGuard implements CanActivate {
 
   private async verifyToken(token:string){
     const payload=await this.jwtService.verifyAsync(token,{
-        secret:this.configservice.get('JWT_SECRET')
-
+        secret:this.configservice.get('JWT_SECRET') || 'collage_project_secret_key'
        });
 
       return payload;

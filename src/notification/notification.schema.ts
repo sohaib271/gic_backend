@@ -51,9 +51,21 @@ export class Notification {
 
   /**
    * type - Notification ka type
-   * Values: announcement | attendance | qr | class | general
+   * Values: announcement | attendance | qr | class | midterm | leave | general
    */
-  @Prop({ required: true, enum: ['announcement', 'attendance', 'qr', 'class', 'general'] })
+  @Prop({
+    required: true,
+    enum: [
+      'announcement',
+      'attendance',
+      'qr',
+      'class',
+      'midterm',
+      'leave',
+      'general',
+      'activity',
+    ],
+  })
   type: string;
 
   /**

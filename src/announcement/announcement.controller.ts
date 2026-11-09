@@ -1,10 +1,8 @@
 import {
   Controller,
-  Get,
   Post,
   Delete,
   Body,
-  Query,
   Param,
   Req,
   UseGuards,
@@ -15,25 +13,14 @@ import { Roles } from 'src/others-stuff/guards/roles.decorator';
 import { AnnouncementService } from './announcement.service';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 
+/**
+ * Announcements ab sirf create/delete karte hain.
+ * Read/Read-status sab GET /notifications?type=announcement se hota hai.
+ */
 @UseGuards(AuthGuard)
 @Controller('announcements')
 export class AnnouncementController {
   constructor(private readonly announcementService: AnnouncementService) {}
-
-  @Get()
-  getAnnouncements(
-    @Query('teacherId') teacherId?: string,
-    @Query('className') className?: string,
-    @Query('creatorRole') creatorRole?: string,
-    @Req() req?: any,
-  ) {
-    return this.announcementService.getAnnouncements(
-      teacherId,
-      className,
-      creatorRole,
-      req?.user?.sub,
-    );
-  }
 
   @UseGuards(RolesGuard)
   @Roles('admin', 'hod')
@@ -43,11 +30,6 @@ export class AnnouncementController {
     @Req() req: any,
   ) {
     return this.announcementService.createAnnouncement(dto, req.user.sub, req.user.role);
-  }
-
-  @Post(':id/read')
-  markAsRead(@Param('id') id: string, @Req() req: any) {
-    return this.announcementService.markAsRead(id, req.user.sub);
   }
 
   @Delete(':id')

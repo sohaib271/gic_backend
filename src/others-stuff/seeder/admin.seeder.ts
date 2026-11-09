@@ -38,6 +38,7 @@ export async function seed() {
       role: UserRoleEnum.ADMIN,
       password: hashedPassword,
       isQrScanned: true,
+      is_approved: true,
     });
 
     // console.log('Admin user created successfully!');

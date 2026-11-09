@@ -1,16 +1,237 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Class, ClassDocument } from './schema/class.schema';
 import mongoose, { Model, Types } from 'mongoose';
 import { CreateClassDto } from './dto/class.dto';
-import { AssignedTeacherDto } from './dto/assignes.dto';
+import { AssignedTeacherDto, ScheduleDto } from './dto/assignes.dto';
 import { User, UserDocument } from 'src/user/schema/user.schema';
 import { UpdateClassDto } from './dto/updateClass.dto';
 import { StruckOff, StruckOffDocument } from './schema/struckoff.schema';
+import { NotificationService } from 'src/notification/notification.service';
+import { SubjectService } from 'src/subject/subject.service';
+
+/**
+ * A type of a schedule entry after subject resolution and period numbering —
+ * i.e. exactly what gets stored on `assignes[].schedule[]`.
+ */
+export type ResolvedScheduleEntry = {
+  day: string;
+  startTime: string;
+  endTime: string;
+  lectureNumber: number;
+  subjectId: number | null;
+  subject: string | null;
+};
+
+/**
+ * The only student fields a class roster is allowed to expose.
+ *
+ * This is an allowlist on purpose. The previous version excluded fields by name
+ * (`-otp -otpExpiry -cnic -address ...`), which leaks the moment anyone adds a
+ * field to the user schema and forgets to blacklist it — live OTP codes and
+ * national ids were being returned to the mobile app. With an allowlist a new
+ * field is private until it is deliberately listed here.
+ */
+const CLASS_STUDENT_FIELDS =
+  'name lastName specialId class rollNo gender image isActive struckOff ' +
+  'is_apply_leave is_leave_approved is_leave_expired';
 
 @Injectable()
 export class ClassService {
-  constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>, @InjectModel(StruckOff.name)private struckOffModel:Model<StruckOffDocument>){}
+  private logger = new Logger('ClassService');
+  constructor(@InjectModel(Class.name)private classModel:Model<ClassDocument>, @InjectModel(User.name)private userModel:Model<UserDocument>, @InjectModel(StruckOff.name)private struckOffModel:Model<StruckOffDocument>, private notificationService: NotificationService, private subjectService: SubjectService){}
+
+  /**
+   * Turns the wire shape of a schedule entry into a stored one: resolves
+   * subjects to numeric ids, and assigns period numbers when the client did
+   * not send them.
+   *
+   * The admin portal only ever sends {day, startTime, endTime} plus a
+   * top-level subject name, so requiring lectureNumber/subjectId here would
+   * break every assignment made through it. Instead the values are derived:
+   *
+   *  - subjectId: the entry's id, else its subject name, else the
+   *    assignment-level subject (id or name).
+   *  - lectureNumber: honoured when sent; otherwise periods are numbered per
+   *    day in start-time order, so "period 1" always means the earliest class.
+   *
+   * A subject name that resolves to nothing is reported in `warnings` rather
+   * than rejected — the schedule is still created, just without an id to report
+   * against, and the caller surfaces it to the admin.
+   */
+  async buildScheduleEntries(
+    schedule?: ScheduleDto[],
+    fallback?: { subjectId?: number; subject?: string },
+  ): Promise<{ entries: ResolvedScheduleEntry[]; warnings: string[] }> {
+    if (!schedule || schedule.length === 0) {
+      return { entries: [], warnings: [] };
+    }
+
+    const explicitIds = schedule
+      .map((s) => s.subjectId)
+      .filter((id): id is number => Number.isFinite(id));
+    const fallbackId = Number.isFinite(fallback?.subjectId)
+      ? (fallback?.subjectId as number)
+      : undefined;
+
+    const byId = await this.subjectService.getBySubjectIds([
+      ...explicitIds,
+      ...(fallbackId !== undefined ? [fallbackId] : []),
+    ]);
+    const nameToId = new Map(byId.map((s) => [s.subjectId, s.name]));
+
+    const candidateNames = [
+      ...schedule.map((s) => s.subject).filter((n): n is string => !!n?.trim()),
+      ...(fallback?.subject?.trim() ? [fallback.subject] : []),
+    ];
+    const resolvedNames = await this.subjectService.resolveSubjectIdsByNames(
+      candidateNames,
+    );
+
+    const warnings: string[] = [];
+
+    const entries: ResolvedScheduleEntry[] = schedule.map((slot) => {
+      const entryName = slot.subject?.trim();
+      const fallbackName = fallback?.subject?.trim();
+      let subjectId = slot.subjectId ?? fallbackId;
+      if (subjectId === undefined && entryName) subjectId = resolvedNames.get(entryName);
+      if (subjectId === undefined && fallbackName) {
+        subjectId = resolvedNames.get(fallbackName);
+      }
+
+      const subject =
+        (subjectId !== undefined ? nameToId.get(subjectId) : undefined) ??
+        entryName ??
+        fallbackName ??
+        null;
+
+      if (subjectId === undefined && subject) {
+        // One warning per distinct subject, not per lecture.
+        const message = `"${subject}" is not in the subject list, so lectures for it will not appear in subject-wise reports. Create it via POST /subjects.`;
+        if (!warnings.includes(message)) warnings.push(message);
+      }
+
+      return {
+        day: slot.day,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        // Numbered below; the type demands a number even though it is blank
+        // until then.
+        lectureNumber: slot.lectureNumber as number,
+        subjectId: subjectId ?? null,
+        subject: subject ?? null,
+      };
+    });
+
+    this.assignLectureNumbers(entries);
+
+    return { entries, warnings };
+  }
+
+  /**
+   * Numbers the periods that the client left blank, per day, in start-time
+   * order. Explicit numbers are kept and the free slots fill the lowest numbers
+   * that are still available, so a hand-numbered timetable is never renumbered
+   * out from under the admin.
+   */
+  private assignLectureNumbers(entries: ResolvedScheduleEntry[]) {
+    const byDay = new Map<string, ResolvedScheduleEntry[]>();
+    for (const entry of entries) {
+      const key = entry.day.trim().toLowerCase();
+      const bucket = byDay.get(key) ?? [];
+      bucket.push(entry);
+      byDay.set(key, bucket);
+    }
+
+    for (const bucket of byDay.values()) {
+      const unnumbered = bucket
+        .filter((e) => !Number.isFinite(e.lectureNumber))
+        .sort(
+          (a, b) => this.clockToMinutes(a.startTime) - this.clockToMinutes(b.startTime),
+        );
+
+      const taken = new Set(
+        bucket
+          .filter((e) => Number.isFinite(e.lectureNumber))
+          .map((e) => e.lectureNumber as number),
+      );
+
+      let next = 1;
+      for (const entry of unnumbered) {
+        while (taken.has(next)) next++;
+        entry.lectureNumber = next;
+        taken.add(next);
+      }
+    }
+  }
+
+  private clockToMinutes(value: string): number {
+    const [h, m] = String(value).split(':');
+    const hours = Number(h);
+    const minutes = Number(m);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
+    return hours * 60 + minutes;
+  }
+
+  /**
+   * Rejects a teacher's schedule that would collide inside a single class:
+   *  - the same period twice, and
+   *  - overlapping times, which would otherwise be auto-numbered as two
+   *    different periods of the same class at the same moment.
+   *
+   * `existing` is the other teachers' schedules in this class, so a new
+   * assignment cannot quietly take a slot that is already taught.
+   */
+  private assertScheduleConflictsFree(
+    entries: ResolvedScheduleEntry[],
+    assignedTeachers: {
+      teacherId?: unknown;
+      schedule?: { day: string; startTime: string; endTime: string }[];
+    }[] = [],
+    ignoreTeacherId?: string,
+  ) {
+    const overlaps = (a: { startTime: string; endTime: string }, b: { startTime: string; endTime: string }) =>
+      this.clockToMinutes(a.startTime) < this.clockToMinutes(b.endTime) &&
+      this.clockToMinutes(b.startTime) < this.clockToMinutes(a.endTime);
+
+    const sameDay = (a: { day: string }, b: { day: string }) =>
+      a.day.trim().toLowerCase() === b.day.trim().toLowerCase();
+
+    // Flatten the other teachers' slots, skipping whoever is being re-edited.
+    const others = assignedTeachers
+      .filter((t) => t.teacherId?.toString() !== ignoreTeacherId)
+      .flatMap((t) => t.schedule ?? []);
+
+    const seen = new Map<string, ResolvedScheduleEntry>();
+    for (const entry of entries) {
+      const key = `${entry.day.trim().toLowerCase()}-${entry.lectureNumber}`;
+      if (seen.has(key)) {
+        throw new ConflictException(
+          `Lecture ${entry.lectureNumber} on ${entry.day} is assigned twice in this class.`,
+        );
+      }
+      seen.set(key, entry);
+
+      const clash = others.find(
+        (slot) => sameDay(slot, entry) && overlaps(slot, entry),
+      );
+      if (clash) {
+        throw new ConflictException(
+          `Another teacher already takes ${entry.day} ${entry.startTime}-${entry.endTime} in this class.`,
+        );
+      }
+    }
+
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        if (sameDay(entries[i], entries[j]) && overlaps(entries[i], entries[j])) {
+          throw new ConflictException(
+            `Lectures on ${entries[i].day} overlap: ${entries[i].startTime}-${entries[i].endTime} and ${entries[j].startTime}-${entries[j].endTime}.`,
+          );
+        }
+      }
+    }
+  }
 
 
   // ✅ Parse date safely as UTC calendar date
@@ -71,7 +292,7 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
     if(category) filter={category};
     if(department) filter={departmentId:department};
     if(category && department) filter={category,departmentId:department}
-    const classes=await this.classModel.find(filter).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role -otp -otpExpiry -image -cnic -address -phone -__v -matricMarks"}).populate({
+    const classes=await this.classModel.find(filter).lean().populate({
     path: "departmentId", select:"code _id category"
   }).populate({path:"assignes.teacherId",select:"name"});
     if(classes.length===0){
@@ -82,15 +303,145 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
   }
 
   async getMyClasses(teacherId){
-       const classes=await this.classModel.find({"assignes.teacherId": teacherId}).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"}).populate({
+       const classes=await this.classModel.find({"assignes.teacherId": teacherId}).lean().populate({
     path: "departmentId",
   }).populate({path:"assignes.teacherId",select:"name"});
-    if(classes.length==0){
-      return "No Class created";
-    }
+if(classes.length==0){
+     // Always an array: the mobile app maps over this response, so returning a
+     // string here crashed it for any teacher with no classes.
+     return [];
+   }
 
-    return classes;
-  }
+   return this.withSubjectDetails(classes);
+ }
+
+ /**
+  * Subjects the signed-in teacher is assigned to teach, read from the
+  * `assignes.teacherId` rows of every class. The id always comes from the
+  * JWT, so a caller can only ever see their own subjects.
+  *
+  * Each row lists the classes the subject is taught in, so the app can narrow
+  * a subject back to a class without another request.
+  */
+ async getMySubjects(teacherId: string) {
+   if (!teacherId || !Types.ObjectId.isValid(teacherId)) {
+     throw new BadRequestException('Invalid teacher id');
+   }
+
+   const owner = new Types.ObjectId(teacherId);
+   const classes = await this.classModel
+     .find({ 'assignes.teacherId': owner })
+     .select('className classId assignes')
+     .lean();
+
+   type SubjectRow = {
+     subjectId: number | null;
+     subject: string;
+     classes: {
+       classId: string;
+       className: string;
+       classIdNumber: number | null;
+     }[];
+   };
+
+   const rows = new Map<string, SubjectRow>();
+
+   for (const cls of classes) {
+     for (const assignee of cls.assignes ?? []) {
+       if (assignee.teacherId?.toString() !== teacherId) continue;
+
+       const name = (assignee.subject ?? '').trim();
+       const subjectId =
+         typeof assignee.subjectId === 'number' ? assignee.subjectId : null;
+       if (!name && subjectId === null) continue;
+
+       const key =
+         subjectId !== null ? `id:${subjectId}` : `name:${name.toLowerCase()}`;
+       const row = rows.get(key) ?? { subjectId, subject: name, classes: [] };
+
+       if (!row.subject && name) row.subject = name;
+       if (!row.classes.some((entry) => entry.classId === cls._id.toString())) {
+         row.classes.push({
+           classId: cls._id.toString(),
+           className: cls.className,
+           classIdNumber: cls.classId ?? null,
+         });
+       }
+
+       rows.set(key, row);
+     }
+   }
+
+   // Older rows stored only the numeric id, so resolve the missing names once
+   // for the whole result instead of per class.
+   const missingIds = [...rows.values()]
+     .filter((row) => !row.subject && row.subjectId !== null)
+     .map((row) => row.subjectId as number);
+
+   if (missingIds.length > 0) {
+     const subjectMap = await this.subjectService.getMapBySubjectIds(missingIds);
+     for (const row of rows.values()) {
+       if (row.subject || row.subjectId === null) continue;
+       row.subject =
+         subjectMap.get(row.subjectId)?.name ?? `Subject ${row.subjectId}`;
+     }
+   }
+
+   return [...rows.values()].sort((a, b) =>
+     a.subject.localeCompare(b.subject),
+   );
+ }
+
+ /**
+  * Attaches a flat per-lecture list (subjectId + resolved subject name) to each
+  * class so the app does not have to walk the nested assignes array itself.
+  */
+ private async withSubjectDetails(classes: any[]) {
+   const subjectIds = classes.flatMap((c) =>
+     (c.assignes ?? []).flatMap((a: any) => [
+       ...(typeof a.subjectId === 'number' ? [a.subjectId] : []),
+       ...((a.schedule ?? [])
+         .map((s: any) => s.subjectId)
+         .filter((id: unknown) => typeof id === 'number')),
+     ]),
+   );
+
+   const subjectMap = await this.subjectService.getMapBySubjectIds(subjectIds);
+
+   return classes.map((c) => ({ ...c, todayLectures: this.flattenLectures(c, subjectMap) }));
+ }
+
+private flattenLectures(
+   cls: any,
+   subjectMap: Map<number, { name: string | null; code: string | null }>,
+ ) {
+   const lectures = (cls.assignes ?? []).flatMap((a: any) => {
+     const teacher = a.teacherId?._id ?? a.teacherId;
+     const teacherName = a.teacherId?.name ?? null;
+
+     return (a.schedule ?? []).map((s: any, index: number) => {
+       const subjectId = typeof s.subjectId === 'number' ? s.subjectId : a.subjectId ?? null;
+       const resolved = subjectId !== null ? subjectMap.get(subjectId) : undefined;
+
+       return {
+         day: s.day,
+         startTime: s.startTime,
+         endTime: s.endTime,
+         lectureNumber: s.lectureNumber ?? index + 1,
+         subjectId,
+         subject: resolved?.name ?? s.subject ?? a.subject ?? null,
+         subjectCode: resolved?.code ?? null,
+         teacherId: teacher ? String(teacher) : null,
+         teacherName,
+       };
+     });
+   });
+
+   return lectures.sort((x, y) => {
+     if (x.day !== y.day) return x.day.localeCompare(y.day);
+     return x.startTime.localeCompare(y.startTime);
+   });
+ }
 
   
   async createClass(dto: CreateClassDto, createdBy: string) {
@@ -104,12 +455,33 @@ getNowInPKT(): { nowTotal: number; pktTodayStr: string } {
 
     const mongoFormat=new mongoose.Types.ObjectId(createdBy);
 
+    // Short numeric classId starting from 700 (700, 701, 702…)
+    const lastClass = await this.classModel
+      .findOne()
+      .sort({ classId: -1 })
+      .select('classId')
+      .lean();
+    const nextClassId = lastClass?.classId ? lastClass.classId + 1 : 700;
+
     const newClass = new this.classModel({
       ...dto,
       createdBy:mongoFormat,
+      classId: nextClassId,
     });
 
     await newClass.save();
+
+    // 🔔 Notify admin/hod/principal about the new class
+    this.getSenderInfo(createdBy).then((actor) => {
+      this.notifyStaff(
+        actor,
+        'Class Created',
+        `New class ${newClass.className} has been created.`,
+        { classId: newClass._id.toString(), className: newClass.className },
+        newClass.className,
+      );
+    }).catch((err) => this.logger.error(`Class created notification failed: ${err}`));
+
     return { message: 'Class created successfully', newClass };
 
   } catch (error) {
@@ -138,8 +510,29 @@ async getClassInfo(classId:string){
   }
 }
 
+/**
+ * Resolves a class identifier to its MongoDB ObjectId. Accepts either a
+ * raw ObjectId string or the short numeric classId (700, 701, 702…).
+ * Throws NotFoundException if neither matches.
+ */
+private async resolveClassObjectId(classId: string): Promise<Types.ObjectId> {
+  if (Types.ObjectId.isValid(classId)) {
+    return new Types.ObjectId(classId);
+  }
+  const numericId = Number(classId);
+  if (Number.isFinite(numericId)) {
+    const cls = await this.classModel
+      .findOne({ classId: numericId })
+      .select('_id')
+      .lean();
+    if (cls) return cls._id as Types.ObjectId;
+  }
+  throw new NotFoundException("Class doesn't exist");
+}
+
 async getClassStudentList(classId:string){
-  const isExist=await this.classModel.findById(classId,{classStudents:1}).lean().populate({path:"classStudents",select:"-password -createdAt -updatedAt -verifyToken -isHod -isQrScanned -_v -isPrincipal -role"});
+  const classObjectId = await this.resolveClassObjectId(classId);
+  const isExist=await this.classModel.findById(classObjectId,{classStudents:1}).lean().populate({path:"classStudents",select:CLASS_STUDENT_FIELDS});
 
   if(!isExist){
     throw new NotFoundException("Class doesn't exist");
@@ -174,17 +567,59 @@ async getAssignedTeacherList(classId:string){
 
 
 
-  async addTeacherInClass(dto: AssignedTeacherDto, classId: string) {
+  async addTeacherInClass(dto: AssignedTeacherDto, classId: string, actionBy: string) {
   const classTeachers = await this.checkTeachers(classId, dto.teacherId);
   const isExistInClass = classTeachers?.find(
     (teacher) =>
       teacher.teacherId.toString() === dto.teacherId ||
-      teacher.subject === dto.subject
+      (dto.subjectId !== undefined && teacher.subjectId === dto.subjectId) ||
+      (dto.subjectId === undefined && teacher.subject === dto.subject),
   );
 
   if (isExistInClass) {
-    throw new ConflictException("Teacher already exists");
+    throw new ConflictException("Teacher already exists in this class for that subject");
   }
+
+  const { entries: scheduleEntries, warnings } = await this.buildScheduleEntries(
+    dto.schedule,
+    { subjectId: dto.subjectId, subject: dto.subject },
+  );
+
+  const classDoc = await this.classModel
+    .findById(classId)
+    .select('assignes')
+    .lean();
+  this.assertScheduleConflictsFree(
+    scheduleEntries,
+    classDoc?.assignes ?? [],
+    dto.teacherId,
+  );
+
+  // Fall back to the first lecture's subject when the caller only sent a
+  // top-level subject name, so older clients keep working.
+  let subjectId = dto.subjectId;
+  let subjectName = dto.subject;
+  if (subjectId === undefined && scheduleEntries.length > 0) {
+    subjectId = scheduleEntries[0].subjectId ?? undefined;
+  }
+  if (subjectId !== undefined && !subjectName) {
+    subjectName =
+      scheduleEntries.find((e) => e.subjectId === subjectId)?.subject ??
+      (await this.subjectService.getBySubjectIds([subjectId]))[0]?.name ??
+      undefined;
+  }
+  if (subjectId === undefined && !subjectName && scheduleEntries.length > 0) {
+    subjectName = scheduleEntries[0].subject ?? undefined;
+  }
+  if (subjectId === undefined && !subjectName) {
+    throw new BadRequestException('Provide a subject for the assignment');
+  }
+
+  const [cls, teacher, actor] = await Promise.all([
+    this.classModel.findById(classId).select('className').lean(),
+    this.userModel.findById(dto.teacherId).select('name lastName department').lean(),
+    this.getSenderInfo(actionBy),
+  ]);
 
   await this.classModel.findByIdAndUpdate(
     { _id: classId },
@@ -192,18 +627,68 @@ async getAssignedTeacherList(classId:string){
       $push: {
         assignes: {
           teacherId: dto.teacherId,
-          subject:   dto.subject,
-          schedule:  dto.schedule ?? [],
+          subjectId,
+          subject:   subjectName,
+          schedule:  scheduleEntries,
         },
       },
     },
     { new: true }
   );
 
-  return { message: "Teacher assigned successfully" };
+  const className = (cls as any)?.className ?? 'Class';
+  const teacherName = teacher
+    ? [teacher.name, teacher.lastName].filter(Boolean).join(' ')
+    : 'Teacher';
+  const displaySubject = subjectName ?? `Subject #${subjectId}`;
+
+  // 🔔 Notify the assigned teacher
+  this.notificationService
+    .create({
+      userId: dto.teacherId,
+      ...actor,
+      type: 'class',
+      title: 'Class Assigned',
+      message: `You have been assigned to teach ${displaySubject} in ${className}.`,
+      data: {
+        classId,
+        className: className,
+        ...(subjectId !== undefined ? { subjectId } : {}),
+        subject: displaySubject,
+      },
+      classNames: [className],
+    })
+    .catch((err) => this.logger.error(`Teacher assigned notification failed: ${err}`));
+
+  // 🔔 Notify only the department HOD
+  const departmentId = (teacher as any)?.department?.toString?.() || (teacher as any)?.departmentId?.toString?.();
+  this.getDepartmentHodIds(departmentId).then((hodIds) => {
+    const recipients = hodIds.filter((id) => id !== dto.teacherId);
+    if (recipients.length === 0) return Promise.resolve(0);
+    return this.notificationService.createBulk({
+      userIds: recipients,
+      senderId: actor.senderId,
+      senderName: actor.senderName,
+      senderRole: actor.senderRole,
+      type: 'class',
+      title: 'Teacher Added to Class',
+      message: `${teacherName} has been added to teach ${displaySubject} in ${className}.`,
+      data: { classId, className, ...(subjectId !== undefined ? { subjectId } : {}) },
+      classNames: [className],
+    });
+  }).catch((err) => this.logger.error(`Teacher added staff notification failed: ${err}`));
+
+  return {
+    message: "Teacher assigned successfully",
+    subjectId: subjectId ?? null,
+    schedule: scheduleEntries,
+    // Non-fatal: a subject name the catalogue does not know yet, so the admin
+    // can create it instead of the assignment silently missing reports.
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 }
 
-async updateTeacherSchedule(classId: string, teacherId: string, schedule: { day: string; startTime: string; endTime: string }[]) {
+async updateTeacherSchedule(classId: string, teacherId: string, schedule: ScheduleDto[], actionBy: string) {
   const classTeachers = await this.checkTeachers(classId, teacherId);
   
   const teacherIndex = classTeachers?.findIndex(
@@ -218,24 +703,81 @@ async updateTeacherSchedule(classId: string, teacherId: string, schedule: { day:
     throw new BadRequestException("Schedule cannot be empty");
   }
 
+  const { entries: scheduleEntries, warnings } = await this.buildScheduleEntries(
+    schedule,
+    {
+      subjectId: classTeachers?.[teacherIndex]?.subjectId,
+      subject: classTeachers?.[teacherIndex]?.subject,
+    },
+  );
+
+  const classDoc = await this.classModel
+    .findById(classId)
+    .select('assignes')
+    .lean();
+  this.assertScheduleConflictsFree(
+    scheduleEntries,
+    classDoc?.assignes ?? [],
+    teacherId,
+  );
+
   // ✅ Update schedule of the specific teacher using positional operator
   await this.classModel.findByIdAndUpdate(
     classId,
     {
       $set: {
-        [`assignes.${teacherIndex}.schedule`]: schedule,
+        [`assignes.${teacherIndex}.schedule`]: scheduleEntries,
       },
     },
     { new: true }
   );
 
-  return { message: "Schedule updated successfully" };
+  const className = ((await this.classModel.findById(classId).select('className').lean()) as any)?.className ?? 'Class';
+  const actor = await this.getSenderInfo(actionBy);
+
+  // 🔔 Notify the teacher
+  this.notificationService
+    .create({
+      userId: teacherId,
+      ...actor,
+      type: 'class',
+      title: 'Schedule Updated',
+      message: `Your schedule for ${className} has been updated.`,
+      data: { classId, className: className },
+      classNames: [className],
+    })
+    .catch((err) => this.logger.error(`Teacher schedule notification failed: ${err}`));
+
+  // 🔔 Notify only the department HOD
+  const departmentId = (await this.userModel.findById(teacherId).select('department').lean())?.department?.toString?.();
+  this.getDepartmentHodIds(departmentId).then((hodIds) => {
+    const recipients = hodIds.filter((id) => id !== teacherId);
+    if (recipients.length === 0) return Promise.resolve(0);
+    return this.notificationService.createBulk({
+      userIds: recipients,
+      senderId: actor.senderId,
+      senderName: actor.senderName,
+      senderRole: actor.senderRole,
+      type: 'class',
+      title: 'Teacher Schedule Updated',
+      message: `A teacher's schedule has been updated in ${className}.`,
+      data: { classId, className },
+      classNames: [className],
+    });
+  }).catch((err) => this.logger.error(`Teacher schedule staff notification failed: ${err}`));
+
+  return {
+    message: "Schedule updated successfully",
+    schedule: scheduleEntries,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 }
 
 async addTeacherSchedule(
   classId: string,
   teacherId: string,
-  schedule: { day: string; startTime: string; endTime: string }[]
+  schedule: ScheduleDto[],
+  actionBy: string,
 ) {
   const classTeachers = await this.checkTeachers(classId, teacherId);
 
@@ -257,48 +799,164 @@ async addTeacherSchedule(
   }
 
   const existingDays = classTeachers[teacherIndex].schedule?.map((s) => s.day) ?? [];
-  const duplicates   = schedule.filter((s) => existingDays.includes(s.day));
+  const incomingDays = schedule.map((s) => s.day);
+  const duplicates   = incomingDays.filter((d) => existingDays.includes(d));
 
   if (duplicates.length > 0) {
     throw new ConflictException(
-      `Schedule already exists for: ${duplicates.map((d) => d.day).join(", ")}`
+      `Schedule already exists for: ${duplicates.join(", ")}`
     );
   }
+
+  const { entries: scheduleEntries, warnings } = await this.buildScheduleEntries(
+    schedule,
+    {
+      subjectId: classTeachers[teacherIndex].subjectId,
+      subject: classTeachers[teacherIndex].subject,
+    },
+  );
+
+  const classDoc = await this.classModel
+    .findById(classId)
+    .select('assignes')
+    .lean();
+  this.assertScheduleConflictsFree(
+    scheduleEntries,
+    classDoc?.assignes ?? [],
+    teacherId,
+  );
 
   await this.classModel.findByIdAndUpdate(
     classId,
     {
       $push: {
-        [`assignes.${teacherIndex}.schedule`]: { $each: schedule },
+        [`assignes.${teacherIndex}.schedule`]: { $each: scheduleEntries },
       },
     },
     { new: true }
   );
 
-  return { message: "Schedule entries added successfully" };
+  const className = ((await this.classModel.findById(classId).select('className').lean()) as any)?.className ?? 'Class';
+  const actor = await this.getSenderInfo(actionBy);
+
+  // 🔔 Notify the teacher
+  this.notificationService
+    .create({
+      userId: teacherId,
+      ...actor,
+      type: 'class',
+      title: 'Schedule Updated',
+      message: `New schedule has been added for your classes in ${className}.`,
+      data: { classId, className: className },
+      classNames: [className],
+    })
+    .catch((err) => this.logger.error(`Teacher schedule notification failed: ${err}`));
+
+  // 🔔 Notify admin/hod/principal
+  this.notifyStaff(
+    actor,
+    'Teacher Schedule Added',
+    `New schedule entries have been added in ${className}.`,
+    { classId, className: className },
+    className,
+    teacherId,
+  );
+
+  return {
+    message: "Schedule entries added successfully",
+    schedule: scheduleEntries,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 }
 
-  async addStudentInClass(classId:string,studentId:string){
+  async addStudentInClass(classId:string,studentId:string,actionBy:string){
     const allStudents=await this.checkStudents(classId,studentId);
     const isExists=allStudents?.find(student=>student.toString()===studentId);
     if(isExists){
       throw new ConflictException("Student already exists");
     }
 
+    const [cls, student, actor] = await Promise.all([
+      this.classModel.findById(classId).select('className').lean(),
+      this.userModel.findById(studentId).select('name lastName').lean(),
+      this.getSenderInfo(actionBy),
+    ]);
+
     await this.classModel.findByIdAndUpdate(classId,{$addToSet:{classStudents:studentId}},{new:false});
+
+    const className = (cls as any)?.className ?? 'Class';
+    const studentName = student
+      ? [student.name, student.lastName].filter(Boolean).join(' ')
+      : 'A student';
+
+    // 🔔 Notify only the student (no staff notification)
+    this.notificationService
+      .create({
+        userId: studentId,
+        ...actor,
+        type: 'class',
+        title: 'Added to Class',
+        message: `You have been added to ${className}.`,
+        data: { classId, className: className },
+        classNames: [className],
+      })
+      .catch((err) => this.logger.error(`Student added notification failed: ${err}`));
 
     return {
       message:"Student added successfully"
     }
   }
 
-  async removeStudentFromClass(classId:string,studentId:string){
+  async removeStudentFromClass(classId:string,studentId:string,actionBy:string){
     const allStudents=await this.checkStudents(classId,studentId);
     const isExists=allStudents?.find(student=>student.toString()===studentId);
     if(!isExists){
       throw new ConflictException("Student doesn't exist");
     }
+
+    const [cls, student, actor] = await Promise.all([
+      this.classModel.findById(classId).select('className').lean(),
+      this.userModel.findById(studentId).select('name lastName department').lean(),
+      this.getSenderInfo(actionBy),
+    ]);
+
     await this.classModel.findByIdAndUpdate(classId,{$pull:{classStudents:isExists}},{new:false});
+
+    const className = (cls as any)?.className ?? 'Class';
+    const studentName = student
+      ? [student.name, student.lastName].filter(Boolean).join(' ')
+      : 'A student';
+
+    // 🔔 Notify the student
+    this.notificationService
+      .create({
+        userId: studentId,
+        ...actor,
+        type: 'class',
+        title: 'Removed from Class',
+        message: `You have been removed from ${className}.`,
+        data: { classId, className: className },
+        classNames: [className],
+      })
+      .catch((err) => this.logger.error(`Student removed notification failed: ${err}`));
+
+    // 🔔 Notify only the department HOD
+    const departmentId = (student as any)?.department?.toString?.() || (student as any)?.departmentId?.toString?.();
+    this.getDepartmentHodIds(departmentId).then((hodIds) => {
+      const recipients = hodIds.filter((id) => id !== studentId);
+      if (recipients.length === 0) return Promise.resolve(0);
+      return this.notificationService.createBulk({
+        userIds: recipients,
+        senderId: actor.senderId,
+        senderName: actor.senderName,
+        senderRole: actor.senderRole,
+        type: 'class',
+        title: 'Student Removed from Class',
+        message: `${studentName} has been removed from ${className}.`,
+        data: { classId, className },
+        classNames: [className],
+      });
+    }).catch((err) => this.logger.error(`Student removed staff notification failed: ${err}`));
 
     return {
       message:"Student has been removed from class",
@@ -321,7 +979,7 @@ async addTeacherSchedule(
     // 1. Fetch and validate existing data in parallel
     let [student, cls, existingRecord] = await Promise.all([
       this.userModel.exists({ _id: studentObjectId, role: 'student' }),
-      this.classModel.findById(classObjectId, { classStudents: 1 }).lean(),
+      this.classModel.findById(classObjectId, { classStudents: 1, className: 1 }).lean(),
       this.struckOffModel.findOne({ studentId: studentObjectId }).lean(),
     ]);
 
@@ -329,7 +987,7 @@ async addTeacherSchedule(
     if (!student || !cls) {
       const [swappedStudent, swappedClass, swappedRecord] = await Promise.all([
         this.userModel.exists({ _id: classObjectId, role: 'student' }),
-        this.classModel.findById(studentObjectId, { classStudents: 1 }).lean(),
+        this.classModel.findById(studentObjectId, { classStudents: 1, className: 1 }).lean(),
         this.struckOffModel.findOne({ studentId: classObjectId }).lean(),
       ]);
 
@@ -391,6 +1049,51 @@ async addTeacherSchedule(
       ),
     ]);
 
+    // 🔔 Notify the struck-off student (informational, mobile shows default detail)
+    const reason = dto.reason.trim();
+    const className = (cls as any)?.className ?? 'your class';
+
+    this.notificationService
+      .create({
+        userId: studentObjectId.toString(),
+        senderId: actionBy,
+        senderName: 'Admin',
+        senderRole: 'admin',
+        type: 'general',
+        title: 'Struck Off',
+        message: `You have been struck off from ${className}. Reason: ${reason}`,
+        data: {
+          classId,
+          className,
+          reason,
+        },
+        classNames: [],
+      })
+      .catch((err) => this.logger.error(`Struck-off student notification failed: ${err}`));
+
+    // 🔔 Notify the acting proff + department HOD + admin
+    const studentDept = (student as any)?.department?.toString?.() || (student as any)?.departmentId?.toString?.();
+    this.getProffHodAdminIds(actionBy, studentDept).then((recipientIds) => {
+      const uniqueRecipients = [...new Set(recipientIds)];
+      if (uniqueRecipients.length === 0) return Promise.resolve(0);
+      return this.notificationService.createBulk({
+        userIds: uniqueRecipients,
+        senderId: actionBy,
+        senderName: 'Admin',
+        senderRole: 'admin',
+        type: 'general',
+        title: 'Student Struck Off',
+        message: `A student has been struck off from ${className}. Reason: ${reason}`,
+        data: {
+          notification_type: '1',
+          classId,
+          className,
+          reason,
+        },
+        classNames: [className],
+      });
+    }).catch((err) => this.logger.error(`Struck-off staff notification failed: ${err}`));
+
     return {
       message: 'Student has been struck off successfully',
       struckOffRecord,
@@ -430,7 +1133,7 @@ async addTeacherSchedule(
       const struckOffRecord = await this.struckOffModel
         .findOne({studentId:student})
         .lean()
-        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department' })
+        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department image' })
         .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' })
         .populate({ path: 'history.actionBy', select: 'name lastName specialId role' });
       return {
@@ -527,6 +1230,39 @@ async addTeacherSchedule(
       ),
     ]);
 
+    // 🔔 Notify the reinstated student
+    this.notificationService
+      .create({
+        userId: studentObjectId.toString(),
+        senderId: actionBy,
+        senderName: actor.name || 'Admin',
+        senderRole: actor.role || 'admin',
+        type: 'class',
+        title: 'Reinstated',
+        message: `You have been reinstated.${reason ? ` Reason: ${reason}` : ''}`,
+        data: {
+          studentId,
+          reason,
+        },
+        classNames: [],
+      })
+      .catch((err) => this.logger.error(`Reinstated student notification failed: ${err}`));
+
+    // 🔔 Notify admin/hod/principal
+    const reinstatedBy = {
+      senderId: actionBy,
+      senderName: actor.name || 'Admin',
+      senderRole: actor.role || 'admin',
+    };
+    this.notifyStaff(
+      reinstatedBy,
+      'Student Reinstated',
+      `A student has been reinstated.${reason ? ` Reason: ${reason}` : ''}`,
+      { studentId, reason },
+      undefined,
+      studentId,
+    );
+
     return {
       message:       'Student has been reinstated successfully',
       updatedRecord,
@@ -561,10 +1297,51 @@ async addTeacherSchedule(
     };
   }
 
-  async getStruckOffStudents(page?: number, limit?: number){
+  async getStruckOffStudents(page?: number, limit?: number, user?: any){
     try {
       const pagination = this.getPagination(page, limit);
-      const filter = { 'currentStatus.status': 'struck_off' };
+      const filter: any = { 'currentStatus.status': 'struck_off' };
+
+      // Resolve effective HOD flag robustly — old JWTs (issued before the
+      // `isHod` field was added to the payload) don't carry it, so fetch the
+      // source user document when it is missing.
+      let effectiveUser: any = user;
+      if (user?.sub && user?.isHod === undefined) {
+        const dbUser = await this.userModel
+          .findById(user.sub)
+          .select('_id role isHod department')
+          .lean();
+        if (dbUser) {
+          effectiveUser = { ...user, role: dbUser.role, isHod: dbUser.isHod, department: dbUser.department ?? user.department };
+        }
+      }
+
+      if (effectiveUser) {
+        if (effectiveUser.role === 'admin') {
+          // admin sees all — no additional filter
+        } else if (effectiveUser.isHod === true && effectiveUser.department) {
+          // HOD sees only their department's students
+          const deptStudentIds = await this.userModel
+            .find({ role: 'student', department: new Types.ObjectId(effectiveUser.department) })
+            .select('_id')
+            .lean();
+          const ids = deptStudentIds.map((s: any) => s._id);
+          if (ids.length === 0) {
+            return {
+              count: 0,
+              total: 0,
+              page: pagination.page,
+              limit: pagination.limit,
+              totalPages: 1,
+              struckOffStudents: [],
+            };
+          }
+          filter.studentId = { $in: ids };
+        } else {
+          // Regular proff sees only students they struck off
+          filter['currentStatus.actionBy'] = new Types.ObjectId(effectiveUser.sub);
+        }
+      }
       const [total, struckOffStudents] = await Promise.all([
         this.struckOffModel.countDocuments(filter),
         this.struckOffModel
@@ -573,7 +1350,7 @@ async addTeacherSchedule(
         .skip(pagination.skip)
         .limit(pagination.limit)
         .lean()
-        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department' })
+        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department image' })
         .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' })
         .populate({ path: 'history.actionBy', select: 'name lastName specialId role' }),
       ]);
@@ -612,7 +1389,7 @@ async addTeacherSchedule(
         .skip(pagination.skip)
         .limit(pagination.limit)
         .lean()
-        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department struckOff' })
+        .populate({ path: 'studentId', select: 'name lastName specialId email rollNo class session category department struckOff image' })
         .populate({ path: 'currentStatus.actionBy', select: 'name lastName specialId role' })
         .populate({ path: 'history.actionBy', select: 'name lastName specialId role' }),
       ]);
@@ -634,8 +1411,41 @@ async addTeacherSchedule(
     }
   }
 
+  // Auto-remove students whose strike-off period has expired
+  async removeExpiredStruckOff(): Promise<number> {
+    const now = new Date();
+    const expiredRecords = await this.struckOffModel
+      .find({ 'currentStatus.status': 'struck_off', 'currentStatus.end': { $ne: null, $lt: now } })
+      .populate({ path: 'studentId', select: '_id name lastName' })
+      .lean();
 
-  async removeTeacherFromClass(classId:string,teacherId:string){
+    let count = 0;
+    for (const record of expiredRecords) {
+      const reinstateLog = {
+        status: 'reinstated',
+        reason: 'Auto-reinstated: strike-off period expired',
+        start: null,
+        end: null,
+        actionBy: record.currentStatus?.actionBy ?? null,
+      };
+
+      await this.struckOffModel.updateOne(
+        { studentId: record.studentId },
+        { $set: { currentStatus: null }, $push: { history: reinstateLog } },
+      );
+
+      await this.userModel.updateOne(
+        { _id: record.studentId },
+        { $set: { struckOff: false } },
+      );
+      count++;
+    }
+
+    return count;
+  }
+
+
+  async removeTeacherFromClass(classId:string,teacherId:string,actionBy:string){
     const classTeachers=await this.checkTeachers(classId,teacherId);
     const isExistInClass=classTeachers?.find(teacher => teacher.teacherId.toString()===teacherId);
     
@@ -643,13 +1453,55 @@ async addTeacherSchedule(
       throw new ConflictException("Teacher doesn't exist in class");
     }
 
+    const [cls, teacher, actor] = await Promise.all([
+      this.classModel.findById(classId).select('className').lean(),
+      this.userModel.findById(teacherId).select('name lastName department').lean(),
+      this.getSenderInfo(actionBy),
+    ]);
+
     await this.classModel.findByIdAndUpdate(classId,{$pull:{assignes:{teacherId}}},{new:false});
+
+    const className = (cls as any)?.className ?? 'Class';
+    const teacherName = teacher
+      ? [teacher.name, teacher.lastName].filter(Boolean).join(' ')
+      : 'A teacher';
+
+    // 🔔 Notify the removed teacher
+    this.notificationService
+      .create({
+        userId: teacherId,
+        ...actor,
+        type: 'class',
+        title: 'Removed from Class',
+        message: `You have been removed from ${className}.`,
+        data: { classId, className: className },
+        classNames: [className],
+      })
+      .catch((err) => this.logger.error(`Teacher removed notification failed: ${err}`));
+
+    // 🔔 Notify only the department HOD
+    const departmentId = (teacher as any)?.department?.toString?.() || (teacher as any)?.departmentId?.toString?.();
+    this.getDepartmentHodIds(departmentId).then((hodIds) => {
+      const recipients = hodIds.filter((id) => id !== teacherId);
+      if (recipients.length === 0) return Promise.resolve(0);
+      return this.notificationService.createBulk({
+        userIds: recipients,
+        senderId: actor.senderId,
+        senderName: actor.senderName,
+        senderRole: actor.senderRole,
+        type: 'class',
+        title: 'Teacher Removed from Class',
+        message: `${teacherName} has been removed from ${className}.`,
+        data: { classId, className },
+        classNames: [className],
+      });
+    }).catch((err) => this.logger.error(`Teacher removed staff notification failed: ${err}`));
 
     return {
       message:"Teacher removed",
     }
   }
-  async updateAssignedTeacher(classId: string, teacherId: string, dto: Partial<AssignedTeacherDto>) {
+  async updateAssignedTeacher(classId: string, teacherId: string, dto: Partial<AssignedTeacherDto>, actionBy: string) {
   const cls = await this.classModel.findById(classId);
   if (!cls) throw new NotFoundException("Class not found");
 
@@ -669,10 +1521,40 @@ async addTeacherSchedule(
 
   cls.markModified("assignes"); // ✅ required for nested array updates
   await cls.save();
+
+  const actor = await this.getSenderInfo(actionBy);
+
+  // 🔔 Notify the teacher
+  this.notificationService
+    .create({
+      userId: teacherId,
+      ...actor,
+      type: 'class',
+      title: 'Assignment Updated',
+      message: `Your teaching assignment in ${cls.className} has been updated.`,
+      data: {
+        classId,
+        className: cls.className,
+        ...(dto.subject ? { subject: dto.subject } : {}),
+      },
+      classNames: [cls.className],
+    })
+    .catch((err) => this.logger.error(`Assignment update notification failed: ${err}`));
+
+  // 🔔 Notify admin/hod/principal
+  this.notifyStaff(
+    actor,
+    'Teacher Assignment Updated',
+    `A teacher's assignment has been updated in ${cls.className}.`,
+    { classId, className: cls.className },
+    cls.className,
+    teacherId,
+  );
+
   return { message: "Assignment updated successfully", class: cls };
 }
 
-  async updateClassCredentials(classId:string,dto:UpdateClassDto){
+  async updateClassCredentials(classId:string,dto:UpdateClassDto,actionBy:string){
       const updateData:any={};
       if(dto?.class!==undefined) updateData.class=dto.class;
       if(dto?.session!==undefined) updateData.session=dto.session;
@@ -681,7 +1563,20 @@ async addTeacherSchedule(
         throw new BadRequestException("Empty fields provided");
       }
 
+      const cls = await this.classModel.findById(classId).select('className').lean();
       await this.classModel.findByIdAndUpdate(classId,{$set:updateData},{new:false});
+
+      const className = (cls as any)?.className ?? 'Class';
+      const actor = await this.getSenderInfo(actionBy);
+
+      // 🔔 Notify admin/hod/principal
+      this.notifyStaff(
+        actor,
+        'Class Updated',
+        `Details of ${className} have been updated.`,
+        { classId, className: className },
+        className,
+      );
 
       return {
         message:"Updated"
@@ -709,6 +1604,108 @@ async addTeacherSchedule(
     }
     return cls?.classStudents;
   }
+
+  // 🔔 Resolve actor identity for notification sender
+  private async getSenderInfo(actorId: string) {
+    const actor = await this.userModel
+      .findById(actorId)
+      .select('name lastName role')
+      .lean();
+    return {
+      senderId: actorId,
+      senderName: actor
+        ? [actor.name, actor.lastName].filter(Boolean).join(' ')
+        : 'Admin',
+      senderRole: actor?.role ?? 'admin',
+    };
+  }
+
+  // 🔔 Get all admins + HODs + principal who should see class updates
+  private async getStaffIds(): Promise<string[]> {
+    const staff = await this.userModel
+      .find({ $or: [{ role: 'admin' }, { role: 'proff' }, { isHod: true }, { isPrincipal: true }] })
+      .select('_id')
+      .lean();
+    return staff.map((s) => s._id.toString());
+  }
+
+  // 🔔 Get the HOD of one department (for targeted notifications)
+  private async getDepartmentHodIds(departmentId?: string): Promise<string[]> {
+    if (!departmentId || !Types.ObjectId.isValid(departmentId)) {
+      // Without a department we must not fall back to *every* HOD — that would
+      // broadcast one department's change to the whole college.
+      this.logger.warn(
+        'Target user has no department; class update notification skipped',
+      );
+      return [];
+    }
+
+    // Aggregate instead of find(): Mongoose casts a string filter value to
+    // ObjectId, so legacy HOD rows that store `department` as a plain hex
+    // string never match. $in with both forms covers both storage styles.
+    const staff = await this.userModel
+      .aggregate<{ _id: Types.ObjectId }>([
+        {
+          $match: {
+            isHod: true,
+            department: {
+              $in: [new Types.ObjectId(departmentId), departmentId],
+            },
+          },
+        },
+        { $project: { _id: 1 } },
+      ])
+      .exec();
+
+    return staff.map((s) => s._id.toString());
+  }
+
+  // 🔔 Get the acting proff + HOD + admin (for struck-off notifications)
+  private async getProffHodAdminIds(actionBy: string, departmentId?: string): Promise<string[]> {
+    const query: any = { $or: [{ role: 'admin' }, { _id: new Types.ObjectId(actionBy) }] };
+    if (departmentId) {
+      query.$or.push({ isHod: true, department: new Types.ObjectId(departmentId) });
+    } else {
+      query.$or.push({ isHod: true });
+    }
+    const staff = await this.userModel
+      .find(query)
+      .select('_id')
+      .lean();
+    return staff.map((s) => s._id.toString());
+  }
+
+  // 🔔 Notify all admin/HOD/principal users (fire-and-forget)
+  // excludeUserId - jo teacher/student affected hai, use staff list se hatane ke liye
+  private notifyStaff(
+    actor: { senderId: string; senderName: string; senderRole: string },
+    title: string,
+    message: string,
+    data: Record<string, any>,
+    className?: string,
+    excludeUserId?: string,
+  ) {
+    this.getStaffIds()
+      .then((staffIds) => {
+        const recipients = excludeUserId
+          ? staffIds.filter((id) => id !== excludeUserId)
+          : staffIds;
+        if (recipients.length === 0) return;
+        return this.notificationService.createBulk({
+          userIds: recipients,
+          senderId: actor.senderId,
+          senderName: actor.senderName,
+          senderRole: actor.senderRole,
+          type: 'class',
+          title,
+          message,
+          data,
+          classNames: className ? [className] : [],
+        });
+      })
+      .catch((err) => this.logger.error(`${title} staff notification failed: ${err}`));
+  }
+
   private async findTeacher(id:string){
     const teacher=await this.userModel.exists({_id:id,role:'proff'});
     return teacher?._id ?? null;

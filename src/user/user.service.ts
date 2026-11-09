@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
   HttpException,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Department } from 'src/department/schema/department.schema';
 import { Class, ClassDocument } from 'src/class/schema/class.schema';
 import { Types } from 'mongoose';
+import { ImageService } from './image.service';
 
 @Injectable()
 export class UserService {
@@ -28,6 +30,7 @@ export class UserService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Department.name) private departmentModel: Model<Department>,
     @InjectModel(Class.name) private classModel: Model<ClassDocument>,
+    private readonly imageService: ImageService,
   ) {}
 
   hashPassword(password: string) {
@@ -155,6 +158,8 @@ const failed: {
         password: await this.hashPassword(dto.password),
         verifyToken,
         isQrScanned: false,
+        // Created directly by an admin/HOD, so it is usable immediately.
+        is_approved: true,
       });
       const department=await this.departmentModel.findById(student.department).select("code").lean();
       if(!department){
@@ -208,6 +213,7 @@ const failed: {
         password: await this.hashPassword(dto.password),
         verifyToken,
         isQrScanned: false,
+        is_approved: true,
         specialId: `PROF-${dto.cnic.slice(-4)}-${usersCount + 1}`,
       });
 
@@ -256,6 +262,7 @@ const failed: {
       password: await this.hashPassword(dto.password),
       verifyToken,
       isQrScanned: false,
+      is_approved: true,
     });
 
     await staff.save();
@@ -303,6 +310,29 @@ const failed: {
     return this.paginatedResponse(sanitizedUsers, total, pagination.page, pagination.limit, 'users');
   }
 
+  async getActiveToday() {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const users = await this.userModel
+      .find({ lastLoginAt: { $gte: startOfToday } })
+      .sort({ lastLoginAt: -1 })
+      .lean()
+      .select({
+        name: 1,
+        lastName: 1,
+        email: 1,
+        specialId: 1,
+        role: 1,
+        gender: 1,
+        shift: 1,
+        lastLoginAt: 1,
+        image: 1,
+      });
+
+    return users.map((user) => this.removeNull(user));
+  }
+
   private removeNull(obj){
     for (const key in obj) {
     if (obj[key] === null) {
@@ -313,6 +343,31 @@ const failed: {
   }
   return obj;
 };
+
+  async uploadProfileImage(
+    userId: string,
+    file: Express.Multer.File,
+    baseUrl: string,
+  ) {
+    const user = await this.userModel.findById(userId).lean();
+    if (!user) throw new NotFoundException('User not found');
+
+    const saved = await this.imageService.save(file.buffer, userId);
+    const url = `${baseUrl}/users/image/${saved.id}`;
+
+    await this.userModel.findByIdAndUpdate(userId, { $set: { image: url } });
+
+    const previousId = this.imageService.extractId(user.image);
+    if (previousId) {
+      await this.imageService.remove(previousId);
+    }
+
+    return {
+      message: 'Image uploaded successfully',
+      image: url,
+      sizeBytes: saved.size,
+    };
+  }
 
   /* ======================
      GET USER BY ID
@@ -460,6 +515,107 @@ async getTeacherSchedule(teacherId: string, page?: number, limit?: number) {
     return { studentId, timetable: groupedTimetable };
   }
 
+  /**
+   * Student ki aaj ki lectures — teacher ke getTodayLectures jaisa hi,
+   * lekin JWT se student identify hota hai, studentId URL mein pass nahi karni.
+   */
+  async getStudentTodayLectures(studentId: string) {
+    const student = await this.userModel
+      .findOne({ _id: studentId, role: 'student' })
+      .select('_id name lastName')
+      .lean();
+
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
+    // Pakistan Standard Time (UTC+5) — teacher service jaisa hi logic
+    const now = new Date();
+    const pktOffset = 5 * 60;
+    const pktNow = new Date(now.getTime() + (pktOffset + now.getTimezoneOffset()) * 60000);
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = dayNames[pktNow.getDay()];
+    const todayStr = pktNow.toISOString().split('T')[0];
+    const nowTotal = pktNow.getHours() * 60 + pktNow.getMinutes();
+
+    const classes = await this.classModel
+      .find({ classStudents: studentId })
+      .populate({ path: 'assignes.teacherId', select: 'name lastName' })
+      .select('className class session category assignes');
+
+    if (classes.length === 0) {
+      return {
+        date: todayStr,
+        day: dayName,
+        currentTime: `${String(Math.floor(nowTotal / 60)).padStart(2, '0')}:${String(nowTotal % 60).padStart(2, '0')}`,
+        totalLectures: 0,
+        liveLecture: null,
+        lectures: [],
+      };
+    }
+
+    const lectures: any[] = [];
+
+    for (const cls of classes) {
+      for (const assignment of (cls as any).assignes ?? []) {
+        for (const slot of assignment.schedule ?? []) {
+          if ((slot.day ?? '').toLowerCase() !== dayName.toLowerCase()) continue;
+
+          const startTotal = this.timeToMinutes(slot.startTime);
+          const endTotal = this.timeToMinutes(slot.endTime);
+          if (startTotal === null || endTotal === null) continue;
+
+          let status: 'upcoming' | 'live' | 'finished';
+          if (nowTotal < startTotal) status = 'upcoming';
+          else if (nowTotal <= endTotal) status = 'live';
+          else status = 'finished';
+
+          const teacher = (assignment.teacherId as any)?._id ? assignment.teacherId : null;
+
+          lectures.push({
+            classId: String((cls as any)._id),
+            className: (cls as any).className,
+            classLevel: (cls as any).class ?? null,
+            session: (cls as any).session ?? null,
+            category: (cls as any).category ?? null,
+            subject: assignment.subject ?? null,
+            subjectId: assignment.subjectId ?? null,
+            teacherId: teacher?._id ?? null,
+            teacherName: teacher
+              ? `${teacher.name} ${teacher.lastName ?? ''}`.trim()
+              : 'Unknown',
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            status,
+          });
+        }
+      }
+    }
+
+    lectures.sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    const liveCandidates = lectures.filter((l) => l.status === 'live');
+    const liveLecture = liveCandidates.length > 0 ? liveCandidates[0] : null;
+
+    return {
+      date: todayStr,
+      day: dayName,
+      currentTime: `${String(Math.floor(nowTotal / 60)).padStart(2, '0')}:${String(nowTotal % 60).padStart(2, '0')}`,
+      totalLectures: lectures.length,
+      liveLecture,
+      lectures,
+    };
+  }
+
+  private timeToMinutes(hhmm: string): number | null {
+    const match = /^(\d{1,2}):(\d{2})/.exec(hhmm);
+    if (!match) return null;
+    const h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    if (h > 23 || m > 59) return null;
+    return h * 60 + m;
+  }
+
   /* ======================
      UPDATE USER
   ======================= */
@@ -502,6 +658,11 @@ async updateUser(id: string, updateData: any) {
       throw new NotFoundException('User not found');
     }
 
+    const imageId = this.imageService.extractId(user.image);
+    if (imageId) {
+      await this.imageService.remove(imageId);
+    }
+
     return {
       message: 'User deleted successfully',
       deletedUser: this.sanitizeUser(user),
@@ -531,12 +692,81 @@ async updateUser(id: string, updateData: any) {
 
   /* ======================
      HELPER: SANITIZE USER
-  ======================= */
+   ======================= */
+
+  /**
+   * Everything a client is allowed to see on a user.
+   *
+   * An allowlist, not a denylist. The previous version deleted `password` and
+   * `verifyToken` and passed everything else through, which meant live `otp` /
+   * `otpExpiry` / `passwordResetToken` values — enough to take over any
+   * account mid-login — were returned by the user list and profile endpoints.
+   * A new field added to the schema is now private until it is listed here.
+   */
+  private static readonly USER_PUBLIC_FIELDS = new Set<string>([
+    '_id',
+    'id',
+    'specialId',
+    'email',
+    'city',
+    'isActive',
+    'is_approved',
+    'gender',
+    'image',
+    'name',
+    'shift',
+    'struckOff',
+    'is_apply_leave',
+    'is_leave_approved',
+    'lastName',
+    'cnic',
+    'phone',
+    'address',
+    'role',
+    'isQrScanned',
+    'lastLoginAt',
+    'department',
+    'departmentId',
+    'session',
+    'rollNo',
+    'category',
+    'subjects',
+    'matricMarks',
+    'interMarks',
+    'class',
+    'whatsappNumber',
+    'isHod',
+    'doj',
+    'isPrincipal',
+    'is_CTI',
+    'qualification',
+    'experience',
+    'designation',
+    'createdAt',
+    'updatedAt',
+  ]);
+
   private sanitizeUser(user: any) {
     const userObject = typeof user?.toObject === "function" ? user.toObject() : { ...user };
-    delete userObject.password;
-    delete userObject.verifyToken;
-    delete userObject.__v;
+    for (const key of Object.keys(userObject)) {
+      if (!UserService.USER_PUBLIC_FIELDS.has(key)) {
+        delete userObject[key];
+      }
+    }
+    if (userObject.role === 'student') {
+      delete userObject.is_CTI;
+    } else {
+      delete userObject.is_apply_leave;
+      delete userObject.is_leave_approved;
+      if (userObject.isHod === true) {
+        delete userObject.struckOff;
+        delete userObject.is_CTI;
+      } else if (userObject.is_CTI === undefined) {
+        userObject.is_CTI = false;
+      }
+    }
+    // struckOff is student-only concept
+    if (userObject.role !== 'student') delete userObject.struckOff;
     return userObject;
   }
 }

@@ -32,6 +32,10 @@ export class Announcement {
 
   @Prop({ type: [{ type: Types.ObjectId, ref: User.name }], default: [] })
   readBy!: Types.ObjectId[];
+
+  // timestamps: true se mongoose inhe auto manage karta hai
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const AnnouncementSchema = SchemaFactory.createForClass(Announcement);
