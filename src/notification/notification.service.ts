@@ -22,14 +22,19 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Notification, NotificationDocument } from './notification.schema';
+import { DeviceToken, DeviceTokenDocument } from './device-token.schema';
 import {
   CreateNotificationDto,
   CreateBulkNotificationDto,
   GetNotificationsDto,
+  RegisterDeviceTokenDto,
   NotificationResponseDto,
   SocketNotificationPayload,
 } from './notification.dto';
 import { NotificationGateway } from './notification.gateway';
+import { FirebaseService } from './firebase.service';
+import { SettingsService } from 'src/settings/settings.service';
+import { User, UserDocument } from 'src/user/schema/user.schema';
 
 @Injectable()
 export class NotificationService {
@@ -40,8 +45,22 @@ export class NotificationService {
     @InjectModel(Notification.name)
     private notificationModel: Model<NotificationDocument>,
 
+    // Inject the DeviceToken model for FCM push tokens
+    @InjectModel(DeviceToken.name)
+    private deviceTokenModel: Model<DeviceTokenDocument>,
+
+    // Inject User model to fetch all recipients for broadcasts
+    @InjectModel(User.name)
+    private userModel: Model<UserDocument>,
+
     // Inject the Socket.io gateway for real-time events
     private notificationGateway: NotificationGateway,
+
+    // Inject Firebase service for FCM push notifications
+    private firebaseService: FirebaseService,
+
+    // Inject settings for the is_push_noti_enable master toggle
+    private settingsService: SettingsService,
   ) {}
 
   // ============================================================
@@ -77,6 +96,13 @@ export class NotificationService {
     // 1b. Send real-time event via Socket.io
     this.sendRealTimeNotification(dto.userId, notification);
 
+    // 1c. Send FCM push notification (if configured)
+    this.sendPushNotification([dto.userId], {
+      title: dto.title,
+      body: dto.message,
+      data: this.buildPushData(dto.type, dto.data || {}, notification._id.toString()),
+    });
+
     return notification;
   }
 
@@ -92,10 +118,11 @@ export class NotificationService {
    * @returns Number of notifications created
    */
   async createBulk(dto: CreateBulkNotificationDto): Promise<number> {
+    this.logger.log(`createBulk called: type=${dto.type} users=${dto.userIds?.length}`);
     // 2a. Prepare bulk insert data
     const notificationsToInsert = dto.userIds.map((userId) => ({
       userId: new Types.ObjectId(userId),
-      senderId: new Types.ObjectId(dto.senderId),
+      senderId: dto.senderId ? new Types.ObjectId(dto.senderId) : new Types.ObjectId(userId),
       senderName: dto.senderName,
       senderRole: dto.senderRole,
       type: dto.type,
@@ -110,6 +137,7 @@ export class NotificationService {
     const result = await this.notificationModel.insertMany(
       notificationsToInsert,
     );
+    this.logger.log(`createBulk inserted: ${result.length}`);
 
     this.logger.log(
       `✅ Created ${result.length} bulk notifications for type: ${dto.type}`,
@@ -128,7 +156,48 @@ export class NotificationService {
       }
     }
 
+    // 2d. Send FCM push notifications to all users
+    this.sendPushNotification(dto.userIds, {
+      title: dto.title,
+      body: dto.message,
+      data: this.buildPushData(dto.type, dto.data || {}, ''),
+    });
+
     return result.length;
+  }
+
+  // ============================================================
+  // BROADCAST ALERT (To ALL users)
+  // ============================================================
+
+  /**
+   * Send an alert to every registered user (students, teachers, HODs).
+   * Used by admin via the "Send Alert" tool.
+   */
+  async sendAlertToAll(
+    sender: { senderId: string; senderName: string; senderRole: string },
+    title: string,
+    message: string,
+  ): Promise<number> {
+    const users = await this.userModel.find({}, { _id: 1 }).lean();
+    const userIds = users.map((u) => u._id.toString());
+
+    if (userIds.length === 0) {
+      this.logger.warn('No users found to send alert');
+      return 0;
+    }
+
+    return this.createBulk({
+      userIds,
+      senderId: sender.senderId,
+      senderName: sender.senderName,
+      senderRole: sender.senderRole,
+      type: 'general',
+      title,
+      message,
+      data: { notification_type: '16' },
+      classNames: [],
+    });
   }
 
   // ============================================================
@@ -172,20 +241,31 @@ export class NotificationService {
 
     // Find students whose className matches any of the target classes
     const students = await UserModel.find({
-      className: { $in: classNames },
-      role: 'student', // Sirf students, not teachers/admins
+      class: { $in: classNames }, // User schema mein field ka naam "class" hai, "className" nahi
+      role: 'student', // Target classes ke students
     });
 
-    if (students.length === 0) {
-      this.logger.warn(`⚠️ No students found for classes: ${classNames.join(', ')}`);
+    // Find everyone else (teachers, admin, HODs, staff) — SIRF tab jab sender admin ho.
+    // HOD / proff announcements sirf unki selected classes ke students tak limited rehti hain.
+    let staffIds: string[] = [];
+    if (senderInfo.senderRole === 'admin') {
+      const staff = await UserModel.find({
+        role: { $in: ['proff', 'staff', 'admin'] },
+      });
+      staffIds = staff.map((s) => s._id.toString());
+    }
+
+    // 3b. Extract user IDs (combine students + staff, no duplicates)
+    const studentIds = students.map((s) => s._id.toString());
+    const allUserIds = [...new Set([...studentIds, ...staffIds])];
+
+    if (allUserIds.length === 0) {
+      this.logger.warn(`⚠️ No users found for classes: ${classNames.join(', ')}`);
       return { notificationsCreated: 0, studentsNotified: 0 };
     }
 
-    // 3b. Extract student IDs
-    const studentIds = students.map((s) => s._id.toString());
-
     // 3c. Create bulk notifications
-    const notificationsToInsert = studentIds.map((userId) => ({
+    const notificationsToInsert = allUserIds.map((userId) => ({
       userId: new Types.ObjectId(userId),
       senderId: new Types.ObjectId(senderInfo.senderId),
       senderName: senderInfo.senderName,
@@ -203,25 +283,29 @@ export class NotificationService {
       notificationsToInsert,
     );
 
-    // 3e. Send real-time notifications to each student
-    for (let i = 0; i < studentIds.length; i++) {
-      const userId = studentIds[i];
+    // 3e. Send real-time notifications to each user
+    for (let i = 0; i < allUserIds.length; i++) {
+      const userId = allUserIds[i];
       const notification = savedNotifications[i];
 
       // Send via Socket.io
       this.sendRealTimeNotification(userId, notification);
-
-      // Also send via Firebase (if configured - for future)
-      // await this.firebaseService.sendToUser(userId, { title, body: message });
     }
 
+    // 3f. Send FCM push notifications to all users
+    this.sendPushNotification(allUserIds, {
+      title,
+      body: message,
+      data: this.buildPushData(type, data, ''),
+    });
+
     this.logger.log(
-      `🎯 Class notification sent to ${students.length} students for classes: ${classNames.join(', ')}`,
+      `🎯 Announcement notification sent to ${allUserIds.length} users (${studentIds.length} students, ${staffIds.length} staff) for classes: ${classNames.join(', ')}`,
     );
 
     return {
       notificationsCreated: savedNotifications.length,
-      studentsNotified: students.length,
+      studentsNotified: allUserIds.length,
     };
   }
 
@@ -431,6 +515,41 @@ export class NotificationService {
     });
   }
 
+  /**
+   * Send an FCM push ONLY for a chat message.
+   * NOTE: Does NOT create a DB notification record, so it never shows up
+   * in the in-app "All Notifications" list. The chat UI handles its own
+   * real-time events via the /chat socket.
+   */
+  async sendChatPush(dto: {
+    receiverId: string;
+    senderId: string;
+    senderName: string;
+    senderRole?: string;
+    conversationId: string;
+    messageText: string;
+  }): Promise<void> {
+    const message = dto.messageText?.trim() || '';
+    const body =
+      message.length > 100
+        ? `${message.slice(0, 100)}…`
+        : message || 'You have a new message';
+
+    await this.sendPushNotification([dto.receiverId], {
+      title: dto.senderName || 'New message',
+      body,
+      data: {
+        type: 'chat',
+        senderId: dto.senderId,
+        senderName: dto.senderName || '',
+        senderRole: dto.senderRole || '',
+        conversationId: dto.conversationId,
+      },
+    });
+
+    this.logger.log(`💬 Chat push sent to user ${dto.receiverId}`);
+  }
+
   // ============================================================
   // HELPER: Send Real-time notification via Socket.io
   // ============================================================
@@ -459,5 +578,183 @@ export class NotificationService {
 
     // Send to user's room
     this.notificationGateway.sendToUser(userId, payload);
+  }
+
+  // ============================================================
+  // 10. DEVICE TOKEN REGISTRATION (FCM)
+  // ============================================================
+
+  /**
+   * Register an FCM device token for a user
+   * Upserts so re-registering the same token updates platform/device
+   *
+   * @param userId - Owning user
+   * @param dto - { token, platform, deviceName }
+   */
+  async registerDeviceToken(
+    userId: string,
+    dto: RegisterDeviceTokenDto,
+  ): Promise<{ message: string; registered: boolean }> {
+    const token = dto.token.trim();
+    if (!token) {
+      return { message: 'Token is required', registered: false };
+    }
+
+    await this.deviceTokenModel.findOneAndUpdate(
+      { userId: new Types.ObjectId(userId), token },
+      {
+        $set: {
+          platform: dto.platform || 'android',
+          deviceName: dto.deviceName || '',
+        },
+        $setOnInsert: { userId: new Types.ObjectId(userId), token },
+      },
+      { upsert: true, new: true },
+    );
+
+    this.logger.log(`📲 Device token registered for user ${userId}`);
+    return { message: 'Device token registered', registered: true };
+  }
+
+  /**
+   * Unregister an FCM device token (on logout)
+   * Remove from body or query: token
+   */
+  async unregisterDeviceToken(
+    userId: string,
+    token?: string,
+  ): Promise<{ message: string; unregistered: boolean }> {
+    if (!token || token.trim().length === 0) {
+      return { message: 'Token is required', unregistered: false };
+    }
+
+    const result = await this.deviceTokenModel.deleteMany({
+      userId: new Types.ObjectId(userId),
+      token: token.trim(),
+    });
+
+    this.logger.log(
+      `📲 Device token unregistered for user ${userId} (removed ${result.deletedCount})`,
+    );
+
+    return {
+      message: 'Device token unregistered',
+      unregistered: result.deletedCount > 0,
+    };
+  }
+
+  /**
+   * Fetch all registered FCM tokens for a set of users
+   */
+  async getTokensForUsers(userIds: string[]): Promise<string[]> {
+    if (userIds.length === 0) return [];
+    const objectIds = userIds.map((id) => new Types.ObjectId(id));
+    const tokens = await this.deviceTokenModel
+      .find({ userId: { $in: objectIds } })
+      .select('token')
+      .lean();
+    return tokens.map((t) => t.token);
+  }
+
+  // ============================================================
+  // 11. DELETE NOTIFICATIONS BY DATA PAYLOAD
+  // ============================================================
+
+  /**
+   * Remove a user's notifications whose `data` payload matches every key in
+   * `dataFilter`. Used when the thing a notification pointed at stops being
+   * valid — e.g. a leave application is cancelled, so the HOD's "new leave
+   * request" alert is no longer actionable.
+   *
+   * @param userId - Owning user
+   * @param dataFilter - Subset of the `data` object to match on
+   */
+  async deleteRelated(
+    userId: string,
+    dataFilter: Record<string, any>,
+  ): Promise<number> {
+    const match: Record<string, any> = {
+      userId: new Types.ObjectId(userId),
+    };
+    for (const [key, value] of Object.entries(dataFilter || {})) {
+      match[`data.${key}`] = value;
+    }
+
+    const stale = await this.notificationModel
+      .find(match)
+      .select('_id')
+      .lean<{ _id: Types.ObjectId }[]>();
+
+    if (stale.length === 0) return 0;
+
+    const ids = stale.map((n) => n._id.toString());
+    await this.notificationModel.deleteMany({ _id: { $in: stale.map((n) => n._id) } });
+
+    for (const id of ids) {
+      this.notificationGateway.notifyDeleted(userId, id);
+    }
+
+    this.logger.log(
+      `🗑️ Removed ${ids.length} notification(s) for user ${userId} matching ${JSON.stringify(
+        dataFilter,
+      )}`,
+    );
+
+    return ids.length;
+  }
+
+  // ============================================================
+  // HELPER: Send FCM push notification(s)
+  // ============================================================
+
+  /**
+   * Send FCM push notifications to the registered device tokens
+   * of the given users. Safe no-op if Firebase isn't configured.
+   */
+  private async sendPushNotification(
+    userIds: string[],
+    payload: { title: string; body: string; data?: Record<string, string> },
+  ): Promise<void> {
+    try {
+      if (!this.firebaseService.isConfigured()) return;
+
+      // Admin/HOD master toggle from the app settings screen. Read per send so
+      // a flip takes effect on the very next notification, with no restart and
+      // no cache to invalidate. The stored record and the in-app socket event
+      // are deliberately unaffected — this switch is about device push only.
+      const pushEnabled = await this.settingsService.getSetting(
+        'is_push_noti_enable',
+        true,
+      );
+      if (pushEnabled === false) {
+        this.logger.log(
+          'Push notifications disabled by admin. Skipping FCM send.',
+        );
+        return;
+      }
+
+      const tokens = await this.getTokensForUsers(userIds);
+      if (tokens.length === 0) return;
+      await this.firebaseService.sendToTokens(tokens, payload);
+      this.logger.log(
+        `📲 Push notification sent to ${tokens.length} device(s)`,
+      );
+    } catch (error) {
+      this.logger.warn(`Push notification failed: ${error}`);
+    }
+  }
+
+  private buildPushData(
+    type: string,
+    data: Record<string, any>,
+    notificationId: string,
+  ): Record<string, string> {
+    const result: Record<string, string> = { type };
+    if (notificationId) result['notificationId'] = notificationId;
+    for (const [key, value] of Object.entries(data || {})) {
+      if (value === null || value === undefined) continue;
+      result[key] = typeof value === 'string' ? value : JSON.stringify(value);
+    }
+    return result;
   }
 }

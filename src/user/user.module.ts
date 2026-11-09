@@ -4,16 +4,29 @@ import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { User, UserSchema } from './schema/user.schema';
 import { AuthModule } from 'src/auth/auth.module';
+import { NotificationModule } from 'src/notification/notification.module';
 import { Department, DepartmentSchema } from 'src/department/schema/department.schema';
 import { Class, ClassSchema } from 'src/class/schema/class.schema';
+import { RegistrationToken, RegistrationTokenSchema } from './schema/registration-token.schema';
+import { RegistrationService } from './registration.service';
+import { RegistrationController } from './registration.controller';
+import { ImageService } from './image.service';
+import { PublicImageController } from './public-image.controller';
 
 
 @Module({
   imports: [AuthModule,
-    MongooseModule.forFeature([{ name: User.name, schema: UserSchema },{name:Department.name,schema:DepartmentSchema},{name:Class.name,schema:ClassSchema}]),
+    // NotificationService for registration approval/rejection alerts
+    NotificationModule,
+    MongooseModule.forFeature([
+      { name: User.name, schema: UserSchema },
+      { name: Department.name, schema: DepartmentSchema },
+      { name: Class.name, schema: ClassSchema },
+      { name: RegistrationToken.name, schema: RegistrationTokenSchema },
+    ]),
   ],
-  controllers: [UserController],
-  providers: [UserService],
+  controllers: [UserController, RegistrationController, PublicImageController],
+  providers: [UserService, RegistrationService, ImageService],
   exports: [UserService],
 })
 export class UserModule {}

@@ -41,6 +41,38 @@ export class UserController {
     return this.userService.getLoggedInUser(req?.user.sub);
   }
 
+  @Post('me/image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: multer.memoryStorage(),
+      limits: {
+        fileSize: 8 * 1024 * 1024,
+        files: 1,
+      },
+      fileFilter: (_req, file, callback) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+        if (allowedTypes.includes(file.mimetype)) {
+          return callback(null, true);
+        }
+
+        callback(new BadRequestException('Only JPG, PNG or WEBP images are allowed'), false);
+      },
+    }),
+  )
+  uploadMyImage(
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+
+    return this.userService.uploadProfileImage(req?.user.sub, file, baseUrl);
+  }
+
   @Post('professor')
   @UseGuards(RolesGuard)
   @Roles("admin","hod") 
@@ -56,7 +88,7 @@ export class UserController {
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles("admin","proff")
+  @Roles("admin","proff","principal")
   getAllUsers(
     @Query('role') role?: string,
     @Query('department') department?: string,
@@ -95,6 +127,12 @@ bulkUploadStudents(
   return this.userService.bulkUploadStudents(file);
 }
 
+  @Get('active-today')
+  @UseGuards(AdminGuard)
+  getActiveToday() {
+    return this.userService.getActiveToday();
+  }
+
   @Get(':id')
   getUserById(@Param('id') id: string) {
     return this.userService.getUserById(id);
@@ -107,18 +145,29 @@ bulkUploadStudents(
     return this.userService.getStudentTimetable(studentId);
   }
 
+  // Student ki aaj ki lectures — JWT se student identify hota hai
+  @Get('student/today-lectures')
+  @UseGuards(RolesGuard)
+  @Roles('student')
+  getStudentTodayLectures(@Req() req: any) {
+    return this.userService.getStudentTodayLectures(req.user.sub);
+  }
+
   @Get('special/:specialId')
   getUserBySpecialId(@Param('specialId') specialId: string) {
     return this.userService.getUserBySpecialId(specialId);
   }
 
   @Put(':id')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'hod', 'principal')
   updateUser(@Param('id') id: string, @Body() updateData: any) {
     return this.userService.updateUser(id, updateData);
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard) // Only admin
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'hod')
   deleteUser(@Param('id') id: string) {
     return this.userService.deleteUser(id);
   }

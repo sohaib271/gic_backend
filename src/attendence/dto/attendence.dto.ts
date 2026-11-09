@@ -1,5 +1,15 @@
 // attendence.dto.ts
-import { IsMongoId, IsNotEmpty, IsNumber, IsOptional, IsString, IsIn, IsDateString } from "class-validator";
+import {
+  IsInt,
+  IsDateString,
+  IsIn,
+  IsMongoId,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class CreateAttendenceDto {
   @IsMongoId({ message: "Invalid class ID" })
@@ -20,9 +30,17 @@ export class CreateAttendenceDto {
   @IsDateString({}, { message: "Date must be a valid ISO date string (e.g. 2025-03-10)" })
   date!: string;
 
+  // Required: without it a teacher teaching the same class in two periods is
+  // blocked from marking the second lecture, and "days present" is unanswerable.
+  @IsNotEmpty({ message: "lectureNumber is required" })
+  @IsInt({ message: "lectureNumber must be an integer" })
+  @Min(1, { message: "lectureNumber starts from 1" })
+  lectureNumber!: number;
+
   @IsOptional()
-  @IsNumber()
-  lectureNumber?: number;
+  @IsInt()
+  @Min(1, { message: "subjectId starts from 1" })
+  subjectId?: number;
 }
 
 export class UpdateAttendenceDto{
@@ -40,10 +58,10 @@ export class UpdateAttendenceDto{
   @IsIn(["A", "P", "L"], { message: "Status must be A (Absent), P (Present), or L (Leave)" })
   attendenceStatus!: string;
 
-  @IsOptional()
-  @IsNumber()
-  lectureNumber?: number;  
-
+  @IsNotEmpty({ message: "lectureNumber is required" })
+  @IsInt({ message: "lectureNumber must be an integer" })
+  @Min(1, { message: "lectureNumber starts from 1" })
+  lectureNumber!: number;
 }
 
 // ✅ For marking attendance for an entire class in one request
@@ -58,9 +76,15 @@ export class BulkAttendenceDto {
   @IsDateString({}, { message: "Date must be a valid ISO date string" })
   date!: string;
 
+  @IsNotEmpty({ message: "lectureNumber is required" })
+  @IsInt({ message: "lectureNumber must be an integer" })
+  @Min(1, { message: "lectureNumber starts from 1" })
+  lectureNumber!: number;
+
   @IsOptional()
-  @IsNumber()
-  lectureNumber?: number;
+  @IsInt()
+  @Min(1, { message: "subjectId starts from 1" })
+  subjectId?: number;
 
   @IsNotEmpty()
   records!: { studentId: string; attendenceStatus: "A" | "P" | "L" }[];

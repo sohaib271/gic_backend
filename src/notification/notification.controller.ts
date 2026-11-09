@@ -32,16 +32,75 @@ import {
   Request,
 } from '@nestjs/common';
 import { AuthGuard } from '../others-stuff/guards/jwt-auth.guard';
+import { AdminGuard } from '../others-stuff/guards/admin.guard';
 import { NotificationService } from './notification.service';
 import {
   CreateNotificationDto,
   GetNotificationsDto,
+  RegisterDeviceTokenDto,
 } from './notification.dto';
 
 @Controller('notifications')
 @UseGuards(AuthGuard) // All routes require authentication
 export class NotificationController {
   constructor(private notificationService: NotificationService) {}
+
+  // ============================================================
+  // POST /notifications/device-token
+  // Register FCM device token for push notifications
+  // ============================================================
+
+  @Post('device-token')
+  async registerDeviceToken(@Request() req, @Body() body: RegisterDeviceTokenDto) {
+    const userId = req.user.sub;
+    return this.notificationService.registerDeviceToken(userId, body);
+  }
+
+  // ============================================================
+  // POST /notifications/alert
+  // Broadcast an alert to ALL users (admin only)
+  // ============================================================
+
+  @Post('alert')
+  @UseGuards(AdminGuard)
+  async sendAlert(
+    @Request() req,
+    @Body() body: { title?: string; message?: string },
+  ) {
+    const title = (body?.title || '').trim();
+    const message = (body?.message || '').trim();
+    if (!title || !message) {
+      return { success: false, message: 'Title and message are required' };
+    }
+
+    const recipients = await this.notificationService.sendAlertToAll(
+      {
+        senderId: req.user.sub,
+        senderName: 'Admin',
+        senderRole: req.user.role,
+      },
+      title,
+      message,
+    );
+
+    return { success: true, recipients };
+  }
+
+  // ============================================================
+  // DELETE /notifications/device-token
+  // Unregister FCM device token (on logout)
+  // ============================================================
+
+  @Delete('device-token')
+  async unregisterDeviceToken(
+    @Request() req,
+    @Body() body: { token?: string },
+    @Query() query: { token?: string },
+  ) {
+    const userId = req.user.sub;
+    const token = body?.token || query?.token;
+    return this.notificationService.unregisterDeviceToken(userId, token);
+  }
 
   // ============================================================
   // GET /notifications
@@ -140,29 +199,6 @@ export class NotificationController {
    *   message: "Notification deleted"
    * }
    */
-  @Delete(':id')
-  async delete(@Request() req, @Param('id') id: string) {
-    const userId = req.user.sub;
-
-    await this.notificationService.delete(id, userId);
-
-    return {
-      message: 'Notification deleted',
-    };
-  }
-
-  // ============================================================
-  // DELETE /notifications/read
-  // Delete all READ notifications (keep unread)
-  // ============================================================
-
-  /**
-   * Response:
-   * {
-   *   message: "Read notifications deleted",
-   *   count: 5
-   * }
-   */
   @Delete('read')
   async deleteRead(@Request() req) {
     const userId = req.user.sub;
@@ -172,6 +208,31 @@ export class NotificationController {
     return {
       message: 'Read notifications deleted',
       count,
+    };
+  }
+
+  // ============================================================
+  // DELETE /notifications/:id
+  // Delete a single notification
+  // ============================================================
+
+  /**
+   * Path Parameters:
+   * - id: Notification ID to delete
+   *
+   * Response:
+   * {
+   *   message: "Notification deleted"
+   * }
+   */
+  @Delete(':id')
+  async delete(@Request() req, @Param('id') id: string) {
+    const userId = req.user.sub;
+
+    await this.notificationService.delete(id, userId);
+
+    return {
+      message: 'Notification deleted',
     };
   }
 

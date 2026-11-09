@@ -1,14 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Remark, RemarkDocument, RemarkEntityType } from './schema/remark.schema';
 import { User, UserDocument } from '../user/schema/user.schema';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class RemarksService {
+  private logger = new Logger('RemarksService');
+
   constructor(
     @InjectModel(Remark.name) private remarkModel: Model<RemarkDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private notificationService: NotificationService,
   ) {}
 
   async createRemark(
@@ -34,27 +38,103 @@ export class RemarksService {
       text: text || '',
     });
 
-    return remark.save();
+    const saved = await remark.save();
+
+    // Notify department HOD + admin when a remark is created on a student.
+    // Mobile opens RemarksScreen when data.notification_type === '13'.
+    if (!isGeneral && entityType === RemarkEntityType.STUDENT) {
+      const student = await this.userModel.findById(entityId).select('department').lean();
+      const departmentId = (student as any)?.department?.toString?.();
+
+      const query: any = { $or: [{ role: 'admin' }] };
+      if (departmentId) {
+        query.$or.push({ isHod: true, department: new Types.ObjectId(departmentId) });
+      } else {
+        query.$or.push({ isHod: true });
+      }
+
+      const recipients = await this.userModel.find(query).select('_id').lean();
+      const recipientIds = recipients.map((r) => r._id.toString());
+
+      if (recipientIds.length > 0) {
+        this.notificationService
+          .createBulk({
+            userIds: recipientIds,
+            senderId: userId,
+            senderName: user.name,
+            senderRole: user.role,
+            type: 'general',
+            title: 'New Remark',
+            message: text?.trim() || 'You have a new remark',
+            data: {
+              notification_type: '13',
+              entityType,
+              entityId,
+              authorName: user.name,
+            },
+            classNames: [],
+          })
+          .catch((err) => this.logger.error(`Remark notification failed: ${err}`));
+      }
+    }
+
+    return {
+      ...saved.toObject(),
+      authorImage: user.image || '',
+    };
+  }
+
+  /**
+   * Attach the author's profile image to each remark so the client can show
+   * the user's picture alongside the remark text. Images are looked up in one
+   * batch query instead of one per remark.
+   */
+  private async withAuthorImage(remarks: any[]) {
+    const authorIds = [
+      ...new Set(
+        remarks
+          .map((r) => r.authorId)
+          .filter((id) => id)
+          .map((id) => id.toString()),
+      ),
+    ];
+
+    const authors = await this.userModel
+      .find({ _id: { $in: authorIds } })
+      .select('image')
+      .lean()
+      .exec();
+
+    const imageByAuthor = new Map(
+      authors.map((a: any) => [a._id.toString(), a.image || '']),
+    );
+
+    return remarks.map((r) => ({
+      ...(r.toObject ? r.toObject() : r),
+      authorImage: imageByAuthor.get(r.authorId?.toString()) || '',
+    }));
   }
 
   async getRemarksByEntity(entityType: RemarkEntityType, entityId: string) {
     // For 'general' entity type, use entityId as-is (not a MongoDB ObjectId)
     const isGeneral = entityType === RemarkEntityType.GENERAL;
-    return this.remarkModel
+    const remarks = await this.remarkModel
       .find({
         entityType,
         entityId: isGeneral ? entityId : new Types.ObjectId(entityId),
       })
       .sort({ createdAt: 1 })
       .exec();
+    return this.withAuthorImage(remarks);
   }
 
   async getAllRemarks(entityType?: RemarkEntityType) {
     const query = entityType ? { entityType } : {};
-    return this.remarkModel
+    const remarks = await this.remarkModel
       .find(query)
       .sort({ createdAt: -1 })
       .exec();
+    return this.withAuthorImage(remarks);
   }
 
   async deleteRemark(remarkId: string, userId: string, userRole: string) {

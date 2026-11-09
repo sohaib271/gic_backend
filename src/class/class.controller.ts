@@ -24,19 +24,19 @@ export class ClassController {
   @UseGuards(RolesGuard)
   @Roles("admin","hod")
   @Post("assign-teacher-to-class/:id")
-  addTeacher(@Param('id') id:string, @Body() dto:AssignedTeacherDto){
-    return this.classservice.addTeacherInClass(dto,id);
+  addTeacher(@Param('id') id:string, @Body() dto:AssignedTeacherDto, @Req() req:any){
+    return this.classservice.addTeacherInClass(dto,id,req.user.sub);
   }
 
   @UseGuards(RolesGuard)
   @Roles("admin","hod")
   @Post("add-student-in-class/:classId/:studentId")
-  addStudent(@Param('classId') classId:string, @Param('studentId') studentId:string){
-    return this.classservice.addStudentInClass(classId,studentId);
+  addStudent(@Param('classId') classId:string, @Param('studentId') studentId:string, @Req() req:any){
+    return this.classservice.addStudentInClass(classId,studentId,req.user.sub);
   }
 
   @UseGuards(RolesGuard)
-  @Roles("admin","hod")
+  @Roles("admin","hod","principal")
   @Get('all')
   getClasses(@Query('category') category?: string,@Query('department') department?:string){
     return this.classservice.getClasses(category,department);
@@ -48,8 +48,9 @@ updateTeacherSchedule(
   @Param('id') classId: string,
   @Param('teacherId') teacherId: string,
   @Body() dto: UpdateScheduleDto,
+  @Req() req: any,
 ) {
-  return this.classservice.updateTeacherSchedule(classId, teacherId, dto.schedule);
+  return this.classservice.updateTeacherSchedule(classId, teacherId, dto.schedule, req.user.sub);
 }
 
 @Get("/my-classes")
@@ -57,6 +58,17 @@ updateTeacherSchedule(
 @Roles("proff")
 getMyClasses(@Req() req:any){
   return this.classservice.getMyClasses(req?.user.sub);
+}
+
+/**
+ * GET /class/my-subjects
+ * Subjects assigned to the signed-in teacher (or HOD) — taken from the token.
+ */
+@Get("my-subjects")
+@UseGuards(RolesGuard)
+@Roles("proff","hod")
+getMySubjects(@Req() req:any){
+  return this.classservice.getMySubjects(req.user.sub);
 }
 
 // POST /classes/:id/assignes/:teacherId/schedule
@@ -67,15 +79,16 @@ addTeacherSchedule(
   @Param('id') classId: string,
   @Param('teacherId') teacherId: string,
   @Body() dto: UpdateScheduleDto,
+  @Req() req: any,
 ) {
-  return this.classservice.addTeacherSchedule(classId, teacherId, dto.schedule);
+  return this.classservice.addTeacherSchedule(classId, teacherId, dto.schedule, req.user.sub);
 }
 
   @UseGuards(RolesGuard)
   @Roles("admin","hod")
   @Patch("remove-student-from-class/:classId/:studentId")
-  removeStudent(@Param('classId') classId:string,@Param('studentId') studentId:string){
-    return this.classservice.removeStudentFromClass(classId,studentId);
+  removeStudent(@Param('classId') classId:string,@Param('studentId') studentId:string, @Req() req:any){
+    return this.classservice.removeStudentFromClass(classId,studentId,req.user.sub);
   }
 
   @UseGuards(RolesGuard)
@@ -96,23 +109,24 @@ addTeacherSchedule(
   updateAssignedTeacher(
     @Param("id") id: string,
     @Param("teacherId") teacherId: string,
-    @Body() dto: Partial<AssignedTeacherDto>
+    @Body() dto: Partial<AssignedTeacherDto>,
+    @Req() req: any,
   ) {
-    return this.classservice.updateAssignedTeacher(id, teacherId, dto);
+    return this.classservice.updateAssignedTeacher(id, teacherId, dto, req.user.sub);
   }
 
   @UseGuards(RolesGuard)
   @Roles("admin","hod")
   @Patch("remove-teacher-from-class/:classId/:teacherId")
-  removeTeacher(@Param('classId') classId:string,@Param('teacherId') teacherId:string){
-    return this.classservice.removeTeacherFromClass(classId,teacherId);
+  removeTeacher(@Param('classId') classId:string,@Param('teacherId') teacherId:string, @Req() req:any){
+    return this.classservice.removeTeacherFromClass(classId,teacherId,req.user.sub);
   }
 
   @UseGuards(RolesGuard)
   @Roles("admin","hod")
   @Patch("update-class/:classId")
-  updateClass(@Param('classId') classId:string,@Body()dto:UpdateClassDto){
-    return this.classservice.updateClassCredentials(classId,dto);
+  updateClass(@Param('classId') classId:string,@Body()dto:UpdateClassDto, @Req() req:any){
+    return this.classservice.updateClassCredentials(classId,dto,req.user.sub);
   }
 
  @UseGuards(RolesGuard)
@@ -139,8 +153,8 @@ addTeacherSchedule(
   @UseGuards(RolesGuard)
   @Roles("admin","hod","proff")
   @Get('struck-off-students')
-  getStruckOffStudents(@Query('page') page?: string, @Query('limit') limit?: string){
-    return this.classservice.getStruckOffStudents(Number(page), Number(limit));
+  getStruckOffStudents(@Query('page') page?: string, @Query('limit') limit?: string, @Req() req?: any){
+    return this.classservice.getStruckOffStudents(Number(page), Number(limit), req?.user);
   }
 
   @UseGuards(RolesGuard)

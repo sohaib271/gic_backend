@@ -6,6 +6,7 @@ import { RemarksController } from './remarks.controller';
 import { RemarksService } from './remarks.service';
 import { Remark, RemarkSchema } from './schema/remark.schema';
 import { User, UserSchema } from '../user/schema/user.schema';
+import { NotificationModule } from 'src/notification/notification.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { User, UserSchema } from '../user/schema/user.schema';
         signOptions: { expiresIn: '7d' },
       }),
     }),
+    NotificationModule,
   ],
   controllers: [RemarksController],
   providers: [RemarksService],

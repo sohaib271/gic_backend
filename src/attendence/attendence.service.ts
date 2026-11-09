@@ -4,13 +4,15 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Class, ClassDocument } from 'src/class/schema/class.schema';
 import { Attendance, AttendenceDocument } from './schema/attendence.schema';
 import { User, UserDocument } from 'src/user/schema/user.schema';
+import { NotificationService } from 'src/notification/notification.service';
 import {
   BulkAttendenceDto,
   CreateAttendenceDto,
@@ -19,11 +21,43 @@ import {
 
 @Injectable()
 export class AttendenceService {
+  private logger = new Logger('AttendenceService');
+
+  /**
+   * Fields an attendance record may expose.
+   *
+   * An allowlist, because `timestamps: true` on the schema plus Mongoose's
+   * `__v` mean every read leaked `createdAt`, `updatedAt` and `__v`. Those
+   * describe the audit trail rather than the lecture, and the mobile client
+   * has no use for them. Listing the fields explicitly also means a column
+   * added to the schema later stays server-side until someone decides it
+   * belongs in a response.
+   */
+  private static readonly ATTENDANCE_RESPONSE_FIELDS =
+    '_id classId studentId teacherId attendenceStatus date lectureNumber subjectId';
+
+  /**
+   * Strips audit/bookkeeping keys from a freshly written document before it is
+   * handed back. The single-record mark and update endpoints return the
+   * Mongoose document itself, so without this they would still carry
+   * `createdAt`, `updatedAt` and `__v`.
+   */
+  private toPublicRecord(record: any) {
+    const plain =
+      record && typeof record.toObject === "function" ? record.toObject() : { ...record };
+    const out: Record<string, any> = {};
+    for (const field of AttendenceService.ATTENDANCE_RESPONSE_FIELDS.split(" ")) {
+      if (field in plain) out[field] = plain[field];
+    }
+    return out;
+  }
+
   constructor(
     @InjectModel(Class.name) private classModel: Model<ClassDocument>,
     @InjectModel(Attendance.name)
     private attendenceModel: Model<AttendenceDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private notificationService: NotificationService,
   ) {}
 
 private isPaginationRequested(page?: number, limit?: number) {
@@ -77,7 +111,7 @@ getNowInPKT():{ nowTotal: number } {
 
   async markAttendence(dto: CreateAttendenceDto) {
   const [cls, teacher] = await Promise.all([
-    this.classModel.findById(dto.classId).select("assignes classStudents").lean(),
+    this.classModel.findById(dto.classId).select("assignes classStudents className").lean(),
     this.userModel.exists({ _id: dto.teacherId, role: "proff" }),
   ]);
   if (!cls) throw new NotFoundException("Class does not exist");
@@ -156,10 +190,33 @@ getNowInPKT():{ nowTotal: number } {
     attendenceStatus: dto.attendenceStatus,
     date:             dayStart, // ✅ UTC midnight
     lectureNumber:    dto.lectureNumber,
+    ...(dto.subjectId !== undefined ? { subjectId: dto.subjectId } : {}),
   });
 
-  await record.save();
-  return { message: "Attendance marked successfully", record };
+  try {
+    await record.save();
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      throw new ConflictException(
+        `Attendance for lecture ${dto.lectureNumber} has already been marked`,
+      );
+    }
+    throw err;
+  }
+
+  // Notify the student that their attendance was marked
+  if (cls?.className) {
+    this.notifyStudentAttendance(
+      dto.studentId,
+      dto.teacherId,
+      cls.className,
+      dto.classId,
+      dto.date,
+      dto.attendenceStatus,
+    );
+  }
+
+  return { message: "Attendance marked successfully", record: this.toPublicRecord(record) };
 }
 
   // attendence.service.ts — add this method
@@ -171,6 +228,7 @@ getNowInPKT():{ nowTotal: number } {
 
   const query = this.attendenceModel
     .find(filter)
+    .select(AttendenceService.ATTENDANCE_RESPONSE_FIELDS)
     .lean()
     .populate({ path: "studentId", select: "name lastName specialId" })
     .populate({ path: "classId",   select: "className category session" })
@@ -221,6 +279,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
   const filter = { classId, teacherId, date: { $gte: dayStart, $lte: dayEnd } };
   const query = this.attendenceModel
     .find(filter)
+    .select(AttendenceService.ATTENDANCE_RESPONSE_FIELDS)
     .lean()
     .populate({ path: "studentId", select: "name lastName specialId" })
     .sort({ createdAt: 1 });
@@ -243,7 +302,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
   async markBulkAttendence(dto: BulkAttendenceDto) {
   // 1. Validate class
   const [cls, teacher] = await Promise.all([
-    this.classModel.findById(dto.classId).select("assignes classStudents").lean(),
+    this.classModel.findById(dto.classId).select("assignes classStudents className").lean(),
     this.userModel.exists({ _id: dto.teacherId, role: "proff" }),
   ]);
   if (!cls) throw new NotFoundException("Class does not exist");
@@ -312,34 +371,149 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
     );
   }
 
-  // 9. Check for duplicate attendance
-  const hasExistingRecords = await this.attendenceModel.exists({
-    classId:   dto.classId,
+  // 9. Upsert per student.
+  //
+  // The app marks a partly-done lecture in mixed mode: students that already
+  // have a record are PATCHed one by one, and the rest go through this bulk
+  // call. So an existing record must never reject the request — the records
+  // for those students are updated, and only the genuinely new ones inserted.
+  // The previous "does any record exist for this period" check returned 409 for
+  // exactly that sequence, leaving the teacher unable to finish the class.
+  const studentIds = dto.records.map((r) => r.studentId);
+  const existing = await this.attendenceModel
+    .find({
+      classId:   dto.classId,
+      teacherId: dto.teacherId,
+      date:      { $gte: dayStart, $lte: dayEnd },
+      lectureNumber: dto.lectureNumber,
+      studentId: { $in: studentIds },
+    })
+    .select('studentId')
+    .lean();
+
+  const existingIds = new Set(existing.map((d) => d.studentId.toString()));
+
+  const toInsert = dto.records.filter((r) => !existingIds.has(r.studentId));
+  const toUpdate = dto.records.filter((r) => existingIds.has(r.studentId));
+
+  const slotFilter = (studentId: string) => ({
+    classId: dto.classId,
     teacherId: dto.teacherId,
-    date:      { $gte: dayStart, $lte: dayEnd },
-    ...(dto.lectureNumber !== undefined && { lectureNumber: dto.lectureNumber }),
+    date: { $gte: dayStart, $lte: dayEnd },
+    lectureNumber: dto.lectureNumber,
+    studentId,
   });
 
-  if (hasExistingRecords) {
-    throw new ConflictException(
-      dto.lectureNumber !== undefined
-        ? `Attendance already marked for lecture ${dto.lectureNumber} on this date`
-        : "Attendance already marked for this class on this date"
+  if (toUpdate.length > 0) {
+    await this.attendenceModel.bulkWrite(
+      toUpdate.map((r) => ({
+        updateOne: {
+          filter: slotFilter(r.studentId),
+          update: {
+            $set: {
+              attendenceStatus: r.attendenceStatus,
+              ...(dto.subjectId !== undefined ? { subjectId: dto.subjectId } : {}),
+            },
+          },
+        },
+      })),
     );
   }
 
-  // 10. Bulk insert
-  const records = dto.records.map((r) => ({
+  const records = toInsert.map((r) => ({
     classId:          dto.classId,
     studentId:        r.studentId,
     teacherId:        dto.teacherId,
     attendenceStatus: r.attendenceStatus,
     date:             dayStart, // ✅ store UTC midnight, not raw string
     lectureNumber:    dto.lectureNumber,
+    ...(dto.subjectId !== undefined ? { subjectId: dto.subjectId } : {}),
   }));
 
-  await this.attendenceModel.insertMany(records);
-  return { message: `Attendance marked for ${records.length} students`, date: dto.date, classId: dto.classId };
+  if (records.length > 0) {
+    try {
+      await this.attendenceModel.insertMany(records, { ordered: false });
+    } catch (err: any) {
+      // ordered:false means one clash does not discard the good rows, so a
+      // duplicate is only worth reporting if nothing at all landed.
+      if (err?.code === 11000 || err?.writeErrors?.some((e: any) => e?.code === 11000)) {
+        const landed = await this.attendenceModel.countDocuments({
+          classId:   dto.classId,
+          teacherId: dto.teacherId,
+          date:      { $gte: dayStart, $lte: dayEnd },
+          lectureNumber: dto.lectureNumber,
+          studentId: { $in: studentIds },
+        });
+        if (landed === 0) {
+          throw new ConflictException(
+            `Attendance for lecture ${dto.lectureNumber} could not be saved`,
+          );
+        }
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Notifications describe the final state of the period, not just the rows
+  // this particular call happened to insert.
+  const finalRecords = dto.records.map((r) => ({
+    studentId: r.studentId,
+    attendenceStatus: r.attendenceStatus,
+  }));
+
+  // Notify:
+  // 1) Each student with their attendance status (type 'attendance')
+  // 2) The teacher with a class summary (data.kind = 'attendance_summary')
+  if (cls?.className) {
+    for (const r of finalRecords) {
+      this.notifyStudentAttendance(
+        r.studentId,
+        dto.teacherId,
+        cls.className,
+        dto.classId,
+        dto.date,
+        r.attendenceStatus,
+      );
+    }
+
+    const present = finalRecords.filter((r) => r.attendenceStatus === 'P').length;
+    const absent = finalRecords.filter((r) => r.attendenceStatus === 'A').length;
+    const leave = finalRecords.filter((r) => r.attendenceStatus === 'L').length;
+
+    this.notificationService
+      .create({
+        userId: dto.teacherId,
+        senderId: dto.teacherId,
+        senderName: 'Attendance',
+        senderRole: 'proff',
+        type: 'attendance',
+        title: 'Attendance Marked',
+        message: `Attendance marked for ${cls.className} on ${dto.date} — Present: ${present}, Absent: ${absent}, Leave: ${leave}.`,
+        data: {
+          kind: 'attendance_summary',
+          classId: dto.classId,
+          className: cls.className,
+          date: dto.date,
+          present,
+          absent,
+          leave,
+        },
+        classNames: [],
+      })
+      .catch((err) =>
+        this.logger.error(`Attendance summary notification failed: ${err}`),
+      );
+  }
+
+  return {
+    message: `Attendance marked for ${finalRecords.length} students`,
+    date: dto.date,
+    classId: dto.classId,
+    lectureNumber: dto.lectureNumber,
+    inserted: records.length,
+    updated: toUpdate.length,
+  };
 }
 
   // ── Get attendance for a class on a specific date ─────────
@@ -354,6 +528,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
     const filter = { classId, date: { $gte: dayStart, $lte: dayEnd } };
     const query = this.attendenceModel
       .find(filter)
+      .select(AttendenceService.ATTENDANCE_RESPONSE_FIELDS)
       .lean()
       .populate({ path: "studentId", select: "name lastName specialId" })
       .populate({ path: "teacherId", select: "name lastName" })
@@ -401,6 +576,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
 
     const recordsQuery = this.attendenceModel
       .find(filter)
+      .select(AttendenceService.ATTENDANCE_RESPONSE_FIELDS)
       .sort({ date: -1, lectureNumber: 1 })
       .lean();
     if (shouldPaginate) recordsQuery.skip(pagination.skip).limit(pagination.limit);
@@ -504,7 +680,7 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
 
   record.attendenceStatus = dto.attendenceStatus;
   await record.save();
-  return { message: "Attendance updated successfully", record };
+  return { message: "Attendance updated successfully", record: this.toPublicRecord(record) };
 }
 
   // ── helpers ───────────────────────────────────────────────
@@ -514,5 +690,131 @@ async getClassAttendanceForTeacher(classId: string, teacherId: string, date: str
       'assignes.teacherId': teacherId,
     });
     return !!assignment;
+  }
+
+  // Notify a single student that their attendance was marked.
+  // Fire-and-forget: notification failure should never break marking.
+  private notifyStudentAttendance(
+    studentId: string,
+    teacherId: string,
+    className: string,
+    classId: string,
+    date: string,
+    status: string,
+  ): void {
+    const statusLabel =
+      status === 'P' ? 'Present' : status === 'A' ? 'Absent' : 'Leave';
+
+    this.notificationService
+      .create({
+        userId: studentId,
+        senderId: teacherId,
+        senderName: 'Teacher',
+        senderRole: 'proff',
+        type: 'attendance',
+        title: 'Attendance Marked',
+        message: `Your attendance has been marked ${statusLabel} for ${className} on ${date}.`,
+        data: { classId, className, date, status },
+        classNames: [],
+      })
+      .catch((err) =>
+        this.logger.error(`Attendance notification failed: ${err}`),
+      );
+  }
+
+  /* ======================
+     STUDENT PROGRESS
+  ======================= */
+  async getStudentProgress(studentId: string, requester: any) {
+    if (!Types.ObjectId.isValid(studentId)) {
+      throw new BadRequestException('Invalid student ID');
+    }
+
+    const isAdmin = requester?.role === 'admin';
+    if (!isAdmin) {
+      const hod = await this.userModel
+        .findById(requester?.sub)
+        .select('isHod department role')
+        .lean();
+      if (!hod || hod.isHod !== true) {
+        throw new ForbiddenException('Only the HOD or admin can view student progress');
+      }
+
+      const targetStudent = await this.userModel
+        .findById(studentId)
+        .select('department')
+        .lean();
+      const hodDept = (hod as any).department?.toString();
+      const studentDept = (targetStudent as any)?.department?.toString();
+      if (!hodDept || !studentDept || hodDept !== studentDept) {
+        throw new ForbiddenException('Student is not in your department');
+      }
+    }
+
+    const student = await this.userModel
+      .findById(studentId)
+      .populate('department', 'code category name')
+      .lean();
+
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
+    const [attendance] = await this.attendenceModel.aggregate([
+      {
+        $match: {
+          studentId: {
+            $in: [studentId, new Types.ObjectId(studentId)],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          present: {
+            $sum: { $cond: [{ $eq: ['$attendenceStatus', 'P'] }, 1, 0] },
+          },
+          absent: {
+            $sum: { $cond: [{ $eq: ['$attendenceStatus', 'A'] }, 1, 0] },
+          },
+          leave: {
+            $sum: { $cond: [{ $eq: ['$attendenceStatus', 'L'] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+
+    const total = attendance?.total ?? 0;
+    const present = attendance?.present ?? 0;
+    const absent = attendance?.absent ?? 0;
+    const leave = attendance?.leave ?? 0;
+    const percentage = total > 0 ? Math.round(((present + leave) / total) * 100) : 0;
+
+    const profile: Record<string, unknown> = {
+      _id: student._id,
+      name: student.name,
+      lastName: student.lastName,
+      email: student.email,
+      phone: student.phone,
+      gender: student.gender,
+      shift: student.shift,
+      session: student.session,
+      category: student.category,
+      class: student.class,
+      specialId: student.specialId,
+      department: student.department,
+      matricMarks: student.matricMarks,
+      interMarks: student.interMarks,
+      subjects: student.subjects,
+      isActive: student.isActive,
+      struckOff: student.struckOff,
+      createdAt: (student as any).createdAt,
+    };
+
+    return {
+      profile,
+      attendance: { total, present, absent, leave, percentage, average: percentage },
+    };
   }
 }
